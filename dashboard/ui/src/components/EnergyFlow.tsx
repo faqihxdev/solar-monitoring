@@ -29,8 +29,8 @@ interface Props {
 const BOX = {
   solar: { x: 24, y: 20, w: 250, h: 92 },
   grid: { x: 24, y: 188, w: 250, h: 92 },
-  battery: { x: 398, y: 101, w: 244, h: 98 },
-  load: { x: 766, y: 104, w: 244, h: 92 },
+  battery: { x: 398, y: 94, w: 244, h: 112 },
+  load: { x: 766, y: 98, w: 244, h: 104 },
 };
 
 /** Compact link number, e.g. "0.42" (W) or "1.2k" (kW), with optional "~". */
@@ -186,7 +186,7 @@ export default function EnergyFlow({
   const links: DiagramLink[] = [
     {
       id: "pv-batt",
-      path: "M 274 84 C 330 84, 350 132, 398 132",
+      path: "M 274 66 C 338 66, 352 150, 398 150",
       active: f.pvToBattery > FLOW_MIN_KW,
       color: C.solar,
       label: f.pvToBattery > FLOW_MIN_KW ? linkLabel(f.pvToBattery) : undefined,
@@ -194,7 +194,7 @@ export default function EnergyFlow({
     },
     {
       id: "grid-batt",
-      path: "M 274 216 C 330 216, 350 168, 398 168",
+      path: "M 274 234 C 338 234, 352 150, 398 150",
       active: f.gridToBattery > FLOW_MIN_KW || f.gridToBatteryReported,
       color: C.grid,
       label: f.gridToBattery > FLOW_MIN_KW ? linkLabel(f.gridToBattery, f.gridInferred) : undefined,
@@ -210,34 +210,36 @@ export default function EnergyFlow({
     },
     {
       id: "pv-load",
-      path: "M 274 48 C 460 14, 580 14, 766 130",
+      path: "M 274 66 C 470 2, 590 2, 766 150",
       active: f.pvToLoad > FLOW_MIN_KW,
       color: C.solar,
       label: f.pvToLoad > FLOW_MIN_KW ? linkLabel(f.pvToLoad) : undefined,
-      at: { x: 520, y: 33 },
+      at: { x: 520, y: 30 },
     },
     {
       id: "grid-load",
-      path: "M 274 254 C 460 290, 580 290, 766 170",
+      path: "M 274 234 C 470 298, 590 298, 766 150",
       active: f.gridToLoad > FLOW_MIN_KW,
       color: C.grid,
       label: f.gridToLoad > FLOW_MIN_KW ? linkLabel(f.gridToLoad, f.gridInferred) : undefined,
-      at: { x: 520, y: 270 },
+      at: { x: 520, y: 272 },
     },
   ];
 
   return (
-    <div className="panel flow fade-in">
-      <div className="flow__head">
-        <span className="panel__label">
+    <div className="animate-[fadein_0.5s_ease_both] flex flex-col overflow-hidden rounded-card border border-line bg-panel">
+      <div className="flex flex-wrap items-center justify-between gap-3.5 px-5 pb-1.5 pt-3.5">
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
           <Workflow size={14} strokeWidth={1.8} /> Power flow
         </span>
       </div>
 
-      <FlowDiagram className="flow__svg" width={1034} height={300} nodes={nodes} links={links} />
+      <div className="px-5 pb-3 pt-1">
+        <FlowDiagram width={1034} height={300} nodes={nodes} links={links} />
+      </div>
 
       {unmeasuredCharge && (
-        <p className="flow__caveat">
+        <p className="px-4 pb-3 text-xs text-faint">
           Charging path reported by DESSMonitor; charge power is not metered by this protocol.
         </p>
       )}

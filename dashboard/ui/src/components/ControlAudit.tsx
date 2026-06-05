@@ -42,25 +42,29 @@ export default function ControlAudit({ audit, loading, error }: Props) {
         : null;
 
   return (
-    <section className="section fade-in">
-      <div className="section-head">
-        <h2>
+    <section className="mt-5.5 animate-[fadein_0.5s_ease_both]">
+      <div className="mb-3 flex items-baseline justify-between gap-4 border-b border-line pb-2">
+        <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
           <SlidersHorizontal size={14} strokeWidth={1.8} /> Control audit
         </h2>
-        <span className="note">Read-only values from DESSMonitor Control</span>
+        <span className="text-xs tracking-wide text-faint">Read-only values from DESSMonitor Control</span>
       </div>
 
-      <div className="audit-grid">
+      <div className="grid grid-cols-5 gap-2.5">
         {loading && !controls.length ? (
-          <div className="audit-card audit-card--muted">Reading controls…</div>
+          <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+            Reading controls…
+          </div>
         ) : message ? (
-          <div className="audit-card audit-card--muted">{message}</div>
+          <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+            {message}
+          </div>
         ) : (
           controls.map((entry) => (
-            <div className="audit-card" key={entry.id}>
-              <div className="audit-card__label">{entry.label}</div>
-              <div className="audit-card__value mono">{displayValue(entry)}</div>
-              <div className="audit-card__id mono">{entry.id}</div>
+            <div className="rounded-card border border-line bg-panel px-3 py-2.5" key={entry.id}>
+              <div className="min-h-6 text-xs uppercase tracking-wider text-dim">{entry.label}</div>
+              <div className="mt-1.5 font-mono tabular-nums text-sm text-text">{displayValue(entry)}</div>
+              <div className="mt-1 font-mono text-xs tabular-nums text-faint">{entry.id}</div>
             </div>
           ))
         )}

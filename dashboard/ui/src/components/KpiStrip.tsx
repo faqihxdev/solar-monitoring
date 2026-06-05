@@ -107,18 +107,22 @@ export default function KpiStrip({ latest, voltageThresholds = [] }: Props) {
   ];
 
   return (
-    <div className="kpis fade-in">
+    <div className="animate-[fadein_0.5s_ease_both] mt-3.5 grid grid-cols-4 gap-3">
       {tiles.map((t) => (
-        <div className="kpi" key={t.label} style={{ borderLeftColor: t.color }}>
-          <div className="kpi__head">
+        <div
+          className="rounded-card border border-line border-l-2 bg-panel px-4 py-3.5"
+          key={t.label}
+          style={{ borderLeftColor: t.color }}
+        >
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-dim">
             <span>{t.label}</span>
             <span style={{ color: t.color }}>{t.icon}</span>
           </div>
-          <div className="kpi__value mono">
+          <div className="mt-2.5 font-mono text-3xl font-medium leading-none tracking-tight tabular-nums">
             {t.value}
-            {t.unit && <span className="kpi__unit">{t.unit}</span>}
+            {t.unit && <span className="ml-1 text-sm font-normal text-dim">{t.unit}</span>}
           </div>
-          <div className="kpi__sub">{t.sub}</div>
+          <div className="mt-1.5 min-h-4 text-xs text-faint">{t.sub}</div>
         </div>
       ))}
     </div>

@@ -47,21 +47,21 @@ export default function Header({ deviceSn, latest, online, polledAtMs, lastIso }
   if (online && (deviceAgeMs ?? ageMs ?? 0) > 120000) ledClass = "led led--stale";
 
   return (
-    <header className="header fade-in">
-      <div className="brand">
-        <div className="brand__mark">
+    <header className="animate-[fadein_0.5s_ease_both] flex flex-wrap items-center justify-between gap-4 rounded-card border border-line bg-panel px-4 py-3.5">
+      <div className="flex items-center gap-3.5">
+        <div className="grid h-10 w-10 place-items-center rounded-card border border-line-hi text-solar">
           <BatteryCharging size={22} strokeWidth={1.6} />
         </div>
         <div>
-          <div className="brand__title">
-            Solar <span>Monitor</span>
+          <div className="text-xl font-bold leading-none tracking-wide">
+            Solar <span className="font-light text-dim">Monitor</span>
           </div>
-          <div className="brand__id mono">{deviceSn || "—"}</div>
+          <div className="mt-1 font-mono text-xs tracking-wide tabular-nums text-faint">{deviceSn || "—"}</div>
         </div>
       </div>
 
-      <div className="live">
-        <span className="live__row mono">
+      <div className="flex flex-col items-end gap-1">
+        <span className="flex items-center gap-2 font-mono text-sm tabular-nums">
           <span className={ledClass} />
           <span
             title={
@@ -76,7 +76,7 @@ export default function Header({ deviceSn, latest, online, polledAtMs, lastIso }
           </span>
         </span>
         <span
-          className="live__sub mono"
+          className="font-mono text-xs tabular-nums text-faint"
           title={lastIso ? `Poll time: ${fullTime(new Date(lastIso).getTime())}` : ""}
         >
           polled {freshness}

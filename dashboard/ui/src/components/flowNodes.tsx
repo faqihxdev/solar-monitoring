@@ -1,13 +1,11 @@
 /**
- * Shared power-flow building blocks used by both the live dashboard
- * (EnergyFlow) and the temporary design lab (NodeLab).
+ * Shared power-flow building blocks used by the live dashboard (EnergyFlow).
  *
- * - Node cards: five internal layouts, all flat-dark theme, prop-driven.
+ * - Node cards: flat-dark layouts, prop-driven.
  * - FlowDiagram: a responsive SVG that draws idle/active links (with number
  *   labels, colored by source) and hosts the HTML node cards via <foreignObject>
  *   so the whole scene scales uniformly without distorting the link curves.
  */
-import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import { C, FONT } from "../theme";
 
@@ -17,7 +15,7 @@ import { C, FONT } from "../theme";
 
 export function FlowChip({ icon: Icon, color }: { icon: LucideIcon; color: string }) {
   return (
-    <span className="fnode-chip" style={{ color }}>
+    <span className="inline-grid h-5 w-5 shrink-0 place-items-center rounded border border-line-hi" style={{ color }}>
       <Icon size={13} strokeWidth={1.9} />
     </span>
   );
@@ -37,7 +35,7 @@ export function FlowRing({
   const circ = 2 * Math.PI * r;
   const dash = (Math.min(100, Math.max(0, pct ?? 0)) / 100) * circ;
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="fnode-ring__svg">
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block">
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.line} strokeWidth={stroke} />
       {pct != null && (
         <circle
@@ -63,8 +61,6 @@ interface BaseProps {
   active?: boolean;
 }
 
-const accent = (color: string) => ({ "--accent": color }) as CSSProperties;
-
 /* ------------------------------------------------------------------ *
  * Variant 1 — Stacked centered
  * ------------------------------------------------------------------ */
@@ -77,71 +73,28 @@ export interface StackNodeProps extends BaseProps {
 
 export function StackNode({ label, icon, color, active, value, unit, sub }: StackNodeProps) {
   return (
-    <div className={`fnode fnode--stack${active ? " is-active" : ""}`} style={accent(color)}>
-      <div className="fnode__corner">
+    <div className="relative flex min-h-20 w-full items-center justify-center rounded-card border border-line-hi bg-panel-hi px-3 py-2.5 text-center">
+      <div className="absolute left-3 top-2.5 flex items-center gap-1.5">
         <FlowChip icon={icon} color={active ? color : C.textDim} />
-        <span className="fnode__label">{label}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-dim">{label}</span>
       </div>
-      <span className="fnode__dot" style={{ background: active ? color : C.line }} />
-      <div className="fnode__center">
-        <div className="fnode__value mono" style={active ? { color } : undefined}>
+      <span className="absolute right-3 top-3 h-1.5 w-1.5 rounded-full" style={{ background: active ? color : C.line }} />
+      <div className="flex flex-col items-center gap-1 mt-2">
+        <div
+          className="font-mono text-2xl font-medium leading-none tracking-tight tabular-nums text-text"
+          style={active ? { color } : undefined}
+        >
           {value}
-          {unit && <small>{unit}</small>}
+          {unit && <small className="ml-1 text-xs font-normal text-dim">{unit}</small>}
         </div>
-        {sub && <div className="fnode__sub">{sub}</div>}
+        {sub && <div className="text-xs uppercase tracking-wider text-faint">{sub}</div>}
       </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ *
- * Variant 2 — Header bar + key/value metric grid
- * ------------------------------------------------------------------ */
-
-export interface SplitNodeProps extends BaseProps {
-  value: string;
-  unit?: string;
-  pill?: string;
-  kv?: { k: string; v: string }[];
-}
-
-export function SplitNode({ label, icon, color, active, value, unit, pill, kv }: SplitNodeProps) {
-  return (
-    <div className={`fnode fnode--split${active ? " is-active" : ""}`} style={accent(color)}>
-      <div className="fnode__bar">
-        <FlowChip icon={icon} color={active ? color : C.textDim} />
-        <span className="fnode__label">{label}</span>
-        {pill && (
-          <span
-            className="fnode-pill"
-            style={{ color: active ? color : C.textDim, borderColor: active ? color : C.lineHi }}
-          >
-            {pill}
-          </span>
-        )}
-      </div>
-      <div className="fnode__body">
-        <div className="fnode__value mono" style={active ? { color } : undefined}>
-          {value}
-          {unit && <small>{unit}</small>}
-        </div>
-        {kv && kv.length > 0 && (
-          <div className="fnode-kv">
-            {kv.map((cell) => (
-              <div className="fnode-kv__cell" key={cell.k}>
-                <span>{cell.k}</span>
-                <b className="mono">{cell.v}</b>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ *
- * Variant 3 — Accent rail + inline bar meter
+ * Variant 2 — Accent rail + inline bar meter
  * ------------------------------------------------------------------ */
 
 export interface RailNodeProps extends BaseProps {
@@ -164,28 +117,37 @@ export function RailNode({
   cap,
 }: RailNodeProps) {
   return (
-    <div className={`fnode fnode--rail${active ? " is-active" : ""}`} style={accent(color)}>
-      <div className="fnode__head">
+    <div
+      className="flex w-full flex-col justify-center gap-2 rounded-card border border-line-hi border-l-2 bg-panel-hi px-3 py-2.5"
+      style={{ borderLeftColor: color }}
+    >
+      <div className="flex items-center gap-1.5">
         <FlowChip icon={icon} color={active ? color : C.textDim} />
-        <span className="fnode__label">{label}</span>
-        {right && <span className="fnode__head-right mono">{right}</span>}
+        <span className="text-xs font-semibold uppercase tracking-wider text-dim">{label}</span>
+        {right && <span className="ml-auto font-mono text-xs text-dim">{right}</span>}
       </div>
-      <div className="fnode__value mono" style={active ? { color } : undefined}>
+      <div
+        className="font-mono text-base font-medium leading-none tracking-tight tabular-nums text-text"
+        style={active ? { color } : undefined}
+      >
         {value}
-        {unit && <small>{unit}</small>}
+        {unit && <small className="ml-1 text-xs font-normal text-dim">{unit}</small>}
       </div>
       {meterPct != null && (
-        <div className="fnode-meter">
-          <i style={{ width: `${Math.min(100, Math.max(0, meterPct))}%`, background: color }} />
+        <div className="h-1.5 overflow-hidden rounded bg-line">
+          <i
+            className="block h-full rounded"
+            style={{ width: `${Math.min(100, Math.max(0, meterPct))}%`, background: color }}
+          />
         </div>
       )}
-      {cap && <div className="fnode__cap">{cap}</div>}
+      {cap && <div className="text-[10px] leading-tight tracking-wide text-faint">{cap}</div>}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ *
- * Variant 4 — Ring gauge + side readout
+ * Variant 3 — Ring gauge + side readout
  * ------------------------------------------------------------------ */
 
 export interface RingNodeProps extends BaseProps {
@@ -209,75 +171,38 @@ export function RingNode({
 }: RingNodeProps) {
   const ringColor = active ? color : C.textDim;
   return (
-    <div className={`fnode fnode--ring${active ? " is-active" : ""}`} style={accent(color)}>
-      <div className="fnode-ring">
+    <div className="flex w-full items-center gap-3 rounded-card border border-line-hi bg-panel-hi px-3 py-2">
+      <div className="relative grid shrink-0 place-items-center">
         <FlowRing pct={pct} color={ringColor} />
-        <div className="fnode-ring__center">
-          <span className="fnode-ring__pct mono">{pct != null ? Math.round(pct) : "—"}</span>
-          {pct != null && <span className="fnode-ring__unit">%</span>}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="font-mono text-base font-medium tabular-nums text-text">
+            {pct != null ? Math.round(pct) : "—"}
+          </span>
+          {pct != null && <span className="ml-px text-xs text-dim">%</span>}
         </div>
       </div>
-      <div className="fnode-ring__side">
-        <div className="fnode__head">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
           <FlowChip icon={icon} color={ringColor} />
-          <span className="fnode__label">{label}</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-dim">{label}</span>
         </div>
         {sub && (
-          <div className="fnode__sub" style={active ? { color } : undefined}>
+          <div className="text-[10px] uppercase tracking-wider text-faint" style={active ? { color } : undefined}>
             {sub}
           </div>
         )}
         {metric && (
-          <div className="fnode-ring__metric mono">
+          <div className="font-mono text-sm tabular-nums text-text">
             {metric}
-            {metricUnit && <small>{metricUnit}</small>}
+            {metricUnit && <small className="ml-0.5 text-xs text-dim">{metricUnit}</small>}
           </div>
         )}
         {caps?.map((c, i) => (
-          <div className="fnode__cap" key={i}>
+          <div className="truncate whitespace-nowrap text-[10px] leading-tight tracking-wide text-faint" key={i} title={c}>
             {c}
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ *
- * Variant 5 — Dense telemetry readout (lab specimen)
- * ------------------------------------------------------------------ */
-
-export interface TelemetryNodeProps extends BaseProps {
-  rows: { k: string; v: string; u?: string }[];
-  bars?: number[];
-}
-
-export function TelemetryNode({ label, icon, color, active, rows, bars }: TelemetryNodeProps) {
-  return (
-    <div className={`fnode fnode--telemetry${active ? " is-active" : ""}`} style={accent(color)}>
-      <div className="fnode__head">
-        <FlowChip icon={icon} color={active ? color : C.textDim} />
-        <span className="fnode__label">{label}</span>
-        <span className="fnode__dot" style={{ background: active ? color : C.line }} />
-      </div>
-      <div className="fnode-readout">
-        {rows.map((r) => (
-          <div className="fnode-readout__row" key={r.k}>
-            <span>{r.k}</span>
-            <b className="mono">
-              {r.v}
-              {r.u && <small>{r.u}</small>}
-            </b>
-          </div>
-        ))}
-      </div>
-      {bars && bars.length > 0 && (
-        <div className="fnode-spark" aria-hidden>
-          {bars.map((h, i) => (
-            <i key={i} style={{ height: `${h * 100}%`, background: color }} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -320,7 +245,7 @@ function LinkLabel({ link }: { link: DiagramLink }) {
         width={w}
         height={18}
         rx={3}
-        fill="#0a0c0d"
+        fill={C.bg}
         stroke={C.line}
       />
       <text
@@ -342,26 +267,31 @@ export function FlowDiagram({
   height = 360,
   nodes,
   links,
-  className = "",
 }: {
   width?: number;
   height?: number;
   nodes: DiagramNode[];
   links: DiagramLink[];
-  className?: string;
 }) {
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className={`flow-diagram ${className}`.trim()}
+      className="block h-auto w-full overflow-visible"
       preserveAspectRatio="xMidYMid meet"
     >
       {links.map((l) => (
         <path
           key={l.id}
-          className={`flow-link${l.active ? " is-active" : ""}`}
+          className="fill-none"
           d={l.path}
-          style={l.active ? { stroke: l.color } : undefined}
+          style={{
+            stroke: l.active ? l.color : C.lineHi,
+            opacity: l.active ? 1 : 0.4,
+            strokeLinecap: "round",
+            strokeWidth: l.active ? 2.6 : 2,
+            strokeDasharray: l.active ? "5 6" : undefined,
+            animation: l.active ? "flowdash 0.9s linear infinite" : undefined,
+          }}
         />
       ))}
       {links.map((l) => (
@@ -369,7 +299,7 @@ export function FlowDiagram({
       ))}
       {nodes.map((n) => (
         <foreignObject key={n.id} x={n.box.x} y={n.box.y} width={n.box.w} height={n.box.h}>
-          <div className="fnode-host">{n.el}</div>
+          <div className="h-full w-full">{n.el}</div>
         </foreignObject>
       ))}
     </svg>

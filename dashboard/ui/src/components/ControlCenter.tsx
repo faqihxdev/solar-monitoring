@@ -36,14 +36,6 @@ function eventTime(event: ControlEvent) {
   return fullTime(event.created_at * 1000);
 }
 
-function displayValue(control: ControlEntry) {
-  const raw = control.raw_value ?? "—";
-  if (control.pack_value != null) {
-    return `${raw}${control.unit} / pack ${num(control.pack_value, 1)}${control.unit}`;
-  }
-  return `${raw}${control.unit ? ` ${control.unit}` : ""}`;
-}
-
 function draftValue(control: ControlEntry, drafts: Record<string, string>) {
   return drafts[control.id] ?? control.raw_value ?? "";
 }
@@ -171,6 +163,23 @@ function automationExplanation(status: AutomationStatus | undefined, draftEnable
   };
 }
 
+const feedbackToneClass: Record<FeedbackTone, string> = {
+  ok: "border-l-charge",
+  warn: "border-l-solar",
+  bad: "border-l-bad",
+};
+const feedbackIconToneClass: Record<FeedbackTone, string> = {
+  ok: "text-charge",
+  warn: "text-solar",
+  bad: "text-bad",
+};
+const eventToneClass: Record<string, string> = {
+  success: "border-l-charge",
+  failed: "border-l-bad",
+  skipped: "border-l-grid",
+  sent: "border-l-solar",
+};
+
 export default function ControlCenter() {
   const controls = useControls();
   const log = useControlLog();
@@ -233,8 +242,7 @@ export default function ControlCenter() {
     mutations.readAll.isPending ||
     mutations.write.isPending ||
     mutations.updateAutomation.isPending ||
-    mutations.evaluateAutomation.isPending ||
-    mutations.a6Test.isPending;
+    mutations.evaluateAutomation.isPending;
 
   const writingId = mutations.write.isPending ? mutations.write.variables?.id ?? null : null;
   const readingId = mutations.readOne.isPending ? mutations.readOne.variables ?? null : null;
@@ -328,31 +336,25 @@ export default function ControlCenter() {
     });
   }
 
-  function runA6Test() {
-    if (
-      !window.confirm(
-        "A6 +0.1 restore test\n\nThis writes A6 +0.1V to the inverter and then restores it. Continue?",
-      )
-    )
-      return;
-    mutations.a6Test.mutate(undefined, {
-      onSuccess: () => setFeedback({ tone: "ok", text: "A6 +0.1 restore test completed." }),
-      onError: (error) => setFeedback({ tone: "bad", text: `A6 test failed: ${errorText(error)}` }),
-    });
-  }
 
   return (
-    <section className="section fade-in">
-      <div className="section-head">
-        <h2>
+    <section className="mt-6 animate-[fadein_0.5s_ease_both]">
+      <div className="mb-3 flex items-baseline justify-between gap-4 border-b border-line pb-2">
+        <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
           <SlidersHorizontal size={14} strokeWidth={1.8} /> Control Center
         </h2>
-        <span className="note">Guarded writes, practical-SOC target, and full action log</span>
+        <span className="text-xs tracking-wide text-faint">
+          Guarded writes, practical-SOC target, and full action log
+        </span>
       </div>
 
       {feedback && (
-        <div className={`control-feedback control-feedback--${feedback.tone}`} role="status" aria-live="polite">
-          <span className="control-feedback__icon">
+        <div
+          className={`mb-3 flex items-start gap-2 rounded-card border border-line border-l-2 bg-panel-hi px-3 py-2.5 text-sm leading-relaxed ${feedbackToneClass[feedback.tone]}`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className={`mt-px inline-flex shrink-0 ${feedbackIconToneClass[feedback.tone]}`}>
             {feedback.tone === "ok" ? (
               <CheckCircle2 size={15} strokeWidth={1.9} />
             ) : feedback.tone === "warn" ? (
@@ -361,10 +363,10 @@ export default function ControlCenter() {
               <AlertTriangle size={15} strokeWidth={1.9} />
             )}
           </span>
-          <span className="control-feedback__text">{feedback.text}</span>
+          <span className="min-w-0 flex-1 wrap-break-word text-text">{feedback.text}</span>
           <button
             type="button"
-            className="control-feedback__close"
+            className="-mr-1 -mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-card p-0 text-faint transition-colors hover:bg-panel hover:text-text"
             aria-label="Dismiss message"
             onClick={() => setFeedback(null)}
           >
@@ -373,26 +375,40 @@ export default function ControlCenter() {
         </div>
       )}
 
-      <div className="control-center">
-        <div className="control-panel control-panel--automation">
-          <div className="control-panel__head">
+      <div className="grid grid-cols-1 gap-3">
+        <div className="rounded-card border border-line bg-panel p-4">
+          <div className="mb-3.5 flex items-start justify-between gap-4">
             <div>
-              <div className="panel__label">
+              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <Target size={14} strokeWidth={1.8} /> Practical SOC target
               </div>
-              <p className="control-panel__sub">
+              <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-faint">
                 Uses practical SOC mapped to pack voltage. Disabled mode restores baseline A6 once only
                 when automation owns an override.
               </p>
             </div>
-            <div className={`automation-mode__badge ${savedEnabled ? "is-on" : "is-off"}`}>
-              <span className="automation-mode__dot" /> {savedEnabled ? "Active" : "Paused"}
+            <div
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 font-mono text-xs tracking-wide ${
+                savedEnabled
+                  ? "border-charge/50 bg-charge/10 text-charge"
+                  : "border-line bg-panel-hi text-faint"
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  savedEnabled
+                    ? "bg-charge ring-4 ring-charge/20"
+                    : "bg-faint"
+                }`}
+              />
+              {savedEnabled ? "Active" : "Paused"}
             </div>
           </div>
 
-          <div className="automation-switch">
-            <label className="control-switch">
+          <div className="mb-3.5 flex items-center justify-between gap-3.5 rounded-card border border-line bg-panel-hi px-3 py-2.5">
+            <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
               <input
+                className="control-switch-input"
                 type="checkbox"
                 role="switch"
                 aria-checked={enabled}
@@ -402,138 +418,162 @@ export default function ControlCenter() {
                   setFormDirty(true);
                 }}
               />
-              <span className="control-switch__track" aria-hidden="true">
-                <span className="control-switch__thumb" />
+              <span className="control-switch-track" aria-hidden="true">
+                <span className="control-switch-thumb" />
               </span>
-              <span className="control-switch__label">
-                <strong>Enable automatic A6 changes</strong>
-                <small>Automation writes A6 to track the practical-SOC target</small>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-sm font-medium text-text">Enable automatic A6 changes</span>
+                <small className="text-xs leading-tight text-faint">
+                  Automation writes A6 to track the practical-SOC target
+                </small>
               </span>
             </label>
-            <div className="automation-switch__state">
+            <div className="shrink-0 text-right">
               {formDirty ? (
-                <span className="automation-switch__dirty">Unsaved · press Save target</span>
+                <span className="font-mono text-xs tracking-wide text-solar">Unsaved · press Save target</span>
               ) : (
-                <span className="automation-switch__saved">
+                <span className="font-mono text-xs tracking-wide text-faint">
                   Saved: {savedEnabled ? "ON" : "OFF"}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="automation-grid">
-            <label className="control-field">
-              <span>Target practical SOC</span>
-              <input
-                className="mono"
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                value={targetSoc}
-                onChange={(event) => {
-                  setTargetSoc(event.target.value);
-                  setFormDirty(true);
-                }}
-              />
-            </label>
-            <label className="control-field">
-              <span>Target time</span>
-              <input
-                className="mono"
-                type="time"
-                value={targetTime}
-                onChange={(event) => {
-                  setTargetTime(event.target.value);
-                  setFormDirty(true);
-                }}
-              />
-            </label>
-            <label className="control-field">
-              <span>Disabled fallback A6</span>
-              <input
-                className="mono"
-                type="number"
-                min={12.4}
-                max={13.5}
-                step={0.1}
-                value={baselineA6}
-                onChange={(event) => {
-                  setBaselineA6(event.target.value);
-                  setFormDirty(true);
-                }}
-              />
-            </label>
+          <div className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="flex flex-col gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wider text-faint">Target SOC</span>
+                  <input
+                    className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={targetSoc}
+                    onChange={(event) => {
+                      setTargetSoc(event.target.value);
+                      setFormDirty(true);
+                    }}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wider text-faint">Target time</span>
+                  <input
+                    className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                    type="time"
+                    value={targetTime}
+                    onChange={(event) => {
+                      setTargetTime(event.target.value);
+                      setFormDirty(true);
+                    }}
+                  />
+                </label>
+              </div>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-faint">Fallback A6 voltage</span>
+                <input
+                  className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                  type="number"
+                  min={12.4}
+                  max={13.5}
+                  step={0.1}
+                  value={baselineA6}
+                  onChange={(event) => {
+                    setBaselineA6(event.target.value);
+                    setFormDirty(true);
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line self-end">
+              <div className="bg-panel-hi px-3 py-2">
+                <span className="block text-[10px] uppercase tracking-wider text-faint">Current state</span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {status?.decision ?? "unknown"}
+                </span>
+              </div>
+              <div className="bg-panel-hi px-3 py-2">
+                <span className="block text-[10px] uppercase tracking-wider text-faint">Practical SOC</span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {status?.practical_soc == null ? "—" : `${Math.round(status.practical_soc)}%`}
+                </span>
+              </div>
+              <div className="bg-panel-hi px-3 py-2">
+                <span className="block text-[10px] uppercase tracking-wider text-faint">Control window</span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {savedEnabled ? windowLabel : "paused"}
+                </span>
+              </div>
+              <div className="bg-panel-hi px-3 py-2">
+                <span className="block text-[10px] uppercase tracking-wider text-faint">Next evaluation</span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">{nextEvaluation}</span>
+              </div>
+            </div>
           </div>
 
-          <div className="automation-status">
-            <div>
-              <span>Current state</span>
-              <strong>{status?.decision ?? "unknown"}</strong>
-            </div>
-            <div>
-              <span>Practical SOC now</span>
-              <strong>{status?.practical_soc == null ? "—" : `${Math.round(status.practical_soc)}%`}</strong>
-            </div>
-            <div>
-              <span>Control window</span>
-              <strong>{savedEnabled ? windowLabel : "paused"}</strong>
-            </div>
-            <div>
-              <span>Next evaluation</span>
-              <strong>{nextEvaluation}</strong>
-            </div>
-          </div>
-
-          <div className="automation-explainer">
-            <div>
-              <span>What it is doing now</span>
-              <strong>{explain.title}</strong>
-            </div>
-            <p>{explain.body}</p>
-            <ul>
+          <div className="mt-2.5 rounded-card border border-line border-l-2 border-l-battery bg-panel-hi px-3 py-2.5">
+            <span className="block text-[10px] uppercase tracking-wider text-faint">Status</span>
+            <span className="mt-0.5 block text-xs font-semibold text-text">{explain.title}</span>
+            <p className="mt-1.5 text-xs leading-relaxed text-dim">{explain.body}</p>
+            <ul className="mt-2 list-disc pl-4 text-xs leading-relaxed text-faint">
               {explain.facts.map((fact) => (
                 <li key={fact}>{fact}</li>
               ))}
             </ul>
           </div>
 
-          <div className="control-actions">
-            <button onClick={saveAutomation} disabled={busy} className={formDirty ? "control-actions__primary" : ""}>
-              {mutations.updateAutomation.isPending && <Loader2 size={13} className="spin" />}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={saveAutomation}
+              disabled={busy}
+              className={`inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45 ${
+                formDirty ? "border-charge bg-charge/15 text-text" : ""
+              }`}
+            >
+              {mutations.updateAutomation.isPending && <Loader2 size={13} className="animate-spin" />}
               Save target
             </button>
-            <button onClick={evaluateNow} disabled={busy}>
-              {mutations.evaluateAutomation.isPending && <Loader2 size={13} className="spin" />}
+            <button
+              onClick={evaluateNow}
+              disabled={busy}
+              className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
+            >
+              {mutations.evaluateAutomation.isPending && <Loader2 size={13} className="animate-spin" />}
               Evaluate now
-            </button>
-            <button className="control-actions__danger" onClick={runA6Test} disabled={busy}>
-              {mutations.a6Test.isPending && <Loader2 size={13} className="spin" />}
-              A6 +0.1 restore test
             </button>
           </div>
         </div>
 
-        <div className="control-panel">
-          <div className="control-panel__head">
+        <div className="rounded-card border border-line bg-panel p-4">
+          <div className="mb-3.5 flex items-start justify-between gap-4">
             <div>
-              <div className="panel__label">
+              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <RefreshCw size={14} strokeWidth={1.8} /> Device controls
               </div>
-              <p className="control-panel__sub">
+              <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-faint">
                 Values show read freshness. Writes are read-before-write and verified after send.
               </p>
             </div>
-            <button className="control-read-all" onClick={readAll} disabled={busy}>
-              {mutations.readAll.isPending && <Loader2 size={13} className="spin" />}
+            <button
+              className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
+              onClick={readAll}
+              disabled={busy}
+            >
+              {mutations.readAll.isPending && <Loader2 size={13} className="animate-spin" />}
               {mutations.readAll.isPending ? "Reading…" : "Read all"}
             </button>
           </div>
 
           {controls.isLoading ? (
-            <div className="audit-card audit-card--muted">Loading cached controls…</div>
+            <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+              Loading cached controls…
+            </div>
           ) : controls.error ? (
-            <div className="audit-card audit-card--muted">Could not load controls: {errorText(controls.error)}</div>
+            <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+              Could not load controls: {errorText(controls.error)}
+            </div>
           ) : (
             <>
               <ControlGroup
@@ -562,22 +602,30 @@ export default function ControlCenter() {
           )}
         </div>
 
-        <div className="control-panel">
-          <div className="control-panel__head">
+        <div className="rounded-card border border-line bg-panel p-4">
+          <div className="mb-3.5 flex items-start justify-between gap-4">
             <div>
-              <div className="panel__label">
+              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <ListChecks size={14} strokeWidth={1.8} /> Action timeline
               </div>
-              <p className="control-panel__sub">Every read, skip, write, restore, and verify includes a reason.</p>
+              <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-faint">
+                Every read, skip, write, restore, and verify includes a reason.
+              </p>
             </div>
           </div>
-          <div className="event-log">
+          <div className="flex max-h-112 flex-col gap-2 overflow-auto pr-0.5">
             {log.isLoading ? (
-              <div className="audit-card audit-card--muted">Loading action log…</div>
+              <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+                Loading action log…
+              </div>
             ) : log.error ? (
-              <div className="audit-card audit-card--muted">Could not load log: {errorText(log.error)}</div>
+              <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+                Could not load log: {errorText(log.error)}
+              </div>
             ) : (log.data?.events ?? []).length === 0 ? (
-              <div className="audit-card audit-card--muted">No control events yet.</div>
+              <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+                No control events yet.
+              </div>
             ) : (
               (log.data?.events ?? []).map((event) => <EventRow key={event.id} event={event} />)
             )}
@@ -612,35 +660,44 @@ function ControlGroup({
   readingId,
 }: ControlGroupProps) {
   return (
-    <div className="control-group">
-      <div className="control-group__title">{title}</div>
+    <div className="mt-3.5">
+      <div className="mb-2 text-xs uppercase tracking-wider text-dim">{title}</div>
       {controls.length === 0 ? (
-        <div className="audit-card audit-card--muted">No controls in this group.</div>
+        <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+          No controls in this group.
+        </div>
       ) : (
-        <div className="control-table">
+        <div className="flex flex-col gap-2">
           {controls.map((control) => {
             const value = draftValue(control, drafts);
             const changed = value !== (control.raw_value ?? "");
             const isWriting = writingId === control.id;
             const isReading = readingId === control.id;
             return (
-              <div className="control-row" key={control.id}>
-                <div className="control-row__meta">
-                  <strong>{control.label}</strong>
-                  <span className="mono">{control.id}</span>
-                  {control.hint && <small>{control.hint}</small>}
-                  {!control.writable && <small className="control-row__ro">read-only</small>}
+              <div
+                className="grid grid-cols-1 gap-x-3 gap-y-2 rounded-card border border-line bg-panel-hi px-3 py-2 lg:grid-cols-12"
+                key={control.id}
+              >
+                <div className="flex min-w-0 flex-col gap-0.5 lg:col-span-4">
+                  <span className="text-xs font-medium leading-snug text-text">{control.label}</span>
+                  <span className="font-mono text-[10px] text-faint">{control.id}</span>
+                  {control.hint && <small className="text-[10px] leading-tight text-faint">{control.hint}</small>}
+                  {!control.writable && <small className="text-[10px] uppercase tracking-wide text-faint">read-only</small>}
                 </div>
-                <div className="control-row__current">
-                  <span className="mono">{displayValue(control)}</span>
-                  <small className={control.stale ? "is-stale" : ""}>
-                    <Clock3 size={11} /> {ageLabel(control.read_at)}
-                    {control.stale && control.read_at != null ? " · stale" : ""}
-                  </small>
+                <div
+                  className="inline-flex items-center gap-1 text-[10px] text-faint lg:col-span-2 lg:self-center"
+                >
+                  <Clock3 size={10} /> {ageLabel(control.read_at)}
                 </div>
-                <div className="control-row__edit">
+                <div className="lg:col-span-3 lg:self-center">
                   {control.type === "enum" && control.options?.length ? (
                     <select
+                      className="w-full cursor-pointer appearance-none rounded-card border border-line bg-panel py-1.5 pl-2.5 pr-8 text-sm text-text outline-none focus:border-line-hi disabled:cursor-not-allowed disabled:opacity-50"
+                      style={{
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%235c636c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M2 4l4 4 4-4'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: "no-repeat",
+                        backgroundPosition: "right 0.6rem center",
+                      }}
                       aria-label={`${control.label} value`}
                       value={value}
                       onChange={(event) => setDraft(control.id, event.target.value)}
@@ -654,29 +711,38 @@ function ControlGroup({
                       ))}
                     </select>
                   ) : (
-                    <input
-                      aria-label={`${control.label} value`}
-                      className="mono"
-                      type={control.type === "number" ? "number" : "text"}
-                      min={control.min}
-                      max={control.max}
-                      step={control.step}
-                      value={value}
-                      onChange={(event) => setDraft(control.id, event.target.value)}
-                      disabled={!control.writable}
-                    />
+                    <div className="relative">
+                      <input
+                        aria-label={`${control.label} value`}
+                        className={`h-8 w-full rounded-card border border-line bg-panel px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi${control.unit ? " pr-8" : ""}`}
+                        type={control.type === "number" ? "number" : "text"}
+                        min={control.min}
+                        max={control.max}
+                        step={control.step}
+                        value={value}
+                        onChange={(event) => setDraft(control.id, event.target.value)}
+                        disabled={!control.writable}
+                      />
+                      {control.unit && (
+                        <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center font-mono text-[10px] text-faint">
+                          {control.unit}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
-                <div className="control-row__ops">
+                <div className="flex items-center justify-end gap-1.5 lg:col-span-3 lg:self-center">
                   <button
+                    className="inline-flex min-h-7 items-center justify-center gap-1 rounded-card border border-line bg-panel-hi px-2.5 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
                     onClick={() => readOne(control)}
                     disabled={busy}
                     aria-label={`Read ${control.label} from inverter`}
                   >
-                    {isReading && <Loader2 size={12} className="spin" />}
+                    {isReading && <Loader2 size={11} className="animate-spin" />}
                     Read
                   </button>
                   <button
+                    className="inline-flex min-h-7 items-center justify-center gap-1 rounded-card border border-line bg-panel-hi px-2.5 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
                     onClick={() => sendControl(control)}
                     disabled={busy || !control.writable || !changed}
                     title={
@@ -688,7 +754,7 @@ function ControlGroup({
                     }
                     aria-label={`Send ${control.label} to inverter`}
                   >
-                    {isWriting ? <Loader2 size={12} className="spin" /> : <Send size={12} />} Send
+                    {isWriting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />} Send
                   </button>
                 </div>
               </div>
@@ -702,18 +768,24 @@ function ControlGroup({
 
 function EventRow({ event }: { event: ControlEvent }) {
   return (
-    <div className={`event-row event-row--${event.status}`}>
-      <div className="event-row__time mono">{eventTime(event)}</div>
-      <div className="event-row__body">
-        <div className="event-row__head">
-          <strong>{event.action}</strong>
-          <span>{event.actor}</span>
-          {event.field_id && <span className="mono">{event.field_id}</span>}
-          <span>{event.status}</span>
+    <div
+      className={`grid grid-cols-1 gap-3 rounded-card border border-line border-l-2 bg-panel-hi px-3 py-2.5 md:grid-cols-5 ${eventToneClass[event.status] ?? "border-l-line"}`}
+    >
+      <div className="font-mono text-xs tabular-nums text-faint md:col-span-1">{eventTime(event)}</div>
+      <div className="min-w-0 md:col-span-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs uppercase tracking-widest text-text">{event.action}</span>
+          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">{event.actor}</span>
+          {event.field_id && (
+            <span className="rounded-full border border-line px-2 py-0.5 font-mono text-xs text-faint">
+              {event.field_id}
+            </span>
+          )}
+          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">{event.status}</span>
         </div>
-        <p>{event.reason}</p>
+        <p className="mt-2 text-xs leading-snug text-dim">{event.reason}</p>
         {(event.value_before != null || event.value_after != null) && (
-          <div className="event-row__values mono">
+          <div className="mt-1.5 font-mono text-xs tabular-nums text-faint">
             {event.value_before ?? "—"} → {event.value_after ?? "—"}
           </div>
         )}

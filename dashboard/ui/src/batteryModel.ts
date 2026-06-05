@@ -40,22 +40,13 @@ function thresholdValue(thresholds: ThresholdEntry[], id: string): number | null
   return thresholds.find((t) => t.id === id)?.value ?? null;
 }
 
-const PRACTICAL_SOC_CURVE: Array<[number, number]> = [
-  [22.4, 0],
-  [23.4, 5],
-  [23.8, 8],
-  [24.0, 11],
-  [24.4, 16],
-  [24.6, 20],
-  [24.8, 25],
-  [25.2, 38],
-  [25.6, 52],
-  [25.8, 58],
-  [26.0, 65],
-  [26.4, 80],
-  [26.8, 92],
-  [27.2, 100],
-];
+// Fixed operational LiFePO4 guide for the 24V pack. This deliberately avoids
+// mode switching because charge/discharge telemetry can be noisy and reboundy.
+// Practical 0% is anchored at A4 / recommended low-voltage cutoff.
+const PRACTICAL_SOC_EMPTY_V = 22.4;
+const PRACTICAL_SOC_FULL_V = 27.2;
+const PRACTICAL_SOC_LOGISTIC_K = 1.4;
+const PRACTICAL_SOC_LOGISTIC_MIDPOINT_V = 26.35;
 
 export interface PracticalSocAnchor {
   voltage: number;
@@ -63,7 +54,12 @@ export interface PracticalSocAnchor {
 }
 
 export function practicalSocAnchors(): PracticalSocAnchor[] {
-  return PRACTICAL_SOC_CURVE.map(([voltage, soc]) => ({ voltage, soc }));
+  return Array.from({ length: 25 }, (_, i) => {
+    const voltage =
+      PRACTICAL_SOC_EMPTY_V +
+      ((PRACTICAL_SOC_FULL_V - PRACTICAL_SOC_EMPTY_V) * i) / 24;
+    return { voltage, soc: practicalSocPct(voltage) ?? 0 };
+  });
 }
 
 export function batteryThresholds(thresholds: ThresholdEntry[]): BatteryThresholds {
@@ -93,40 +89,39 @@ export function protectionReservePct(
   return clampPct(((voltage - a4) / (a7 - a4)) * 100);
 }
 
+function sigmoid(value: number): number {
+  return 1 / (1 + Math.exp(-value));
+}
+
+function rawPracticalSoc(voltage: number): number {
+  return sigmoid(PRACTICAL_SOC_LOGISTIC_K * (voltage - PRACTICAL_SOC_LOGISTIC_MIDPOINT_V));
+}
+
 export function practicalSocPct(voltage: number | null | undefined): number | null {
   if (voltage == null) return null;
-  if (voltage <= PRACTICAL_SOC_CURVE[0][0]) return PRACTICAL_SOC_CURVE[0][1];
-  const last = PRACTICAL_SOC_CURVE[PRACTICAL_SOC_CURVE.length - 1];
-  if (voltage >= last[0]) return last[1];
+  if (voltage <= PRACTICAL_SOC_EMPTY_V) return 0;
+  if (voltage >= PRACTICAL_SOC_FULL_V) return 100;
 
-  for (let i = 1; i < PRACTICAL_SOC_CURVE.length; i += 1) {
-    const [vHi, socHi] = PRACTICAL_SOC_CURVE[i];
-    const [vLo, socLo] = PRACTICAL_SOC_CURVE[i - 1];
-    if (voltage <= vHi) {
-      const t = (voltage - vLo) / (vHi - vLo);
-      return clampPct(socLo + t * (socHi - socLo));
-    }
-  }
-  return null;
+  const empty = rawPracticalSoc(PRACTICAL_SOC_EMPTY_V);
+  const full = rawPracticalSoc(PRACTICAL_SOC_FULL_V);
+  return clampPct(((rawPracticalSoc(voltage) - empty) / (full - empty)) * 100);
 }
 
 export function voltageForPracticalSoc(soc: number | null | undefined): number | null {
   if (soc == null) return null;
   const targetSoc = clampPct(soc);
-  const first = PRACTICAL_SOC_CURVE[0];
-  const last = PRACTICAL_SOC_CURVE[PRACTICAL_SOC_CURVE.length - 1];
-  if (targetSoc <= first[1]) return first[0];
-  if (targetSoc >= last[1]) return last[0];
+  if (targetSoc <= 0) return PRACTICAL_SOC_EMPTY_V;
+  if (targetSoc >= 100) return PRACTICAL_SOC_FULL_V;
 
-  for (let i = 1; i < PRACTICAL_SOC_CURVE.length; i += 1) {
-    const [vHi, socHi] = PRACTICAL_SOC_CURVE[i];
-    const [vLo, socLo] = PRACTICAL_SOC_CURVE[i - 1];
-    if (targetSoc <= socHi) {
-      const t = (targetSoc - socLo) / (socHi - socLo);
-      return vLo + t * (vHi - vLo);
-    }
+  let lo = PRACTICAL_SOC_EMPTY_V;
+  let hi = PRACTICAL_SOC_FULL_V;
+  for (let i = 0; i < 32; i += 1) {
+    const mid = (lo + hi) / 2;
+    const midSoc = practicalSocPct(mid) ?? 0;
+    if (midSoc < targetSoc) lo = mid;
+    else hi = mid;
   }
-  return null;
+  return (lo + hi) / 2;
 }
 
 export function practicalBattery(

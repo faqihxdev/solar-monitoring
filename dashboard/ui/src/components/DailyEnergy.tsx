@@ -120,7 +120,10 @@ function NetBadge({ net }: { net: number }) {
   const over = net >= 0;
   const color = over ? C.charge : C.bad;
   return (
-    <span className="daily-net-badge" style={{ borderColor: color, color }}>
+    <span
+      className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-xs font-semibold tracking-wider"
+      style={{ borderColor: color, color }}
+    >
       {over ? "▲" : "▼"} {over ? "OVER" : "UNDER"} {Math.abs(net).toFixed(2)} kWh
     </span>
   );
@@ -137,12 +140,18 @@ export default function DailyEnergy() {
   const selected = days.find((d) => d.date === date) ?? null;
 
   return (
-    <section className="section fade-in">
-      <div className="section-head">
-        <h2>Daily Energy</h2>
-        <div className="daily-nav">
+    <section className="mt-6 animate-[fadein_0.5s_ease_both]">
+      <div className="mb-3 flex items-baseline justify-between gap-4 border-b border-line pb-2">
+        <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
+          Daily Energy
+        </h2>
+        <div className="inline-flex items-center gap-1.5">
           <button
-            className={`daily-nav__today-btn mono${isToday ? " daily-nav__today-btn--current" : ""}`}
+            className={`inline-grid h-6.5 place-items-center rounded-card border px-2 font-mono text-xs leading-none tracking-wider ${
+              isToday
+                ? "cursor-default border-charge bg-charge/15 text-charge"
+                : "cursor-pointer border-line bg-panel text-faint hover:border-line-hi hover:text-dim"
+            }`}
             onClick={() => !isToday && setDate(today)}
             disabled={isToday}
             title="Jump to today"
@@ -150,15 +159,21 @@ export default function DailyEnergy() {
             today
           </button>
           <button
-            className="daily-nav__btn"
+            className="grid h-6.5 w-6.5 cursor-pointer place-items-center rounded-card border border-line bg-panel p-0 text-base leading-none text-dim transition-colors hover:border-line-hi hover:text-text"
             onClick={() => setDate(offsetDate(date, -1))}
             title="Previous day"
           >
             ‹
           </button>
-          <span className="daily-nav__date mono">{formatDayShort(date)}</span>
+          <span className="inline-flex min-w-18 items-center justify-center gap-1.5 text-center font-mono text-xs tabular-nums text-dim">
+            {formatDayShort(date)}
+          </span>
           <button
-            className={`daily-nav__btn${!canGoNext ? " daily-nav__btn--disabled" : ""}`}
+            className={`grid h-6.5 w-6.5 place-items-center rounded-card border bg-panel p-0 text-base leading-none transition-colors ${
+              !canGoNext
+                ? "cursor-default border-line text-dim opacity-30"
+                : "cursor-pointer border-line text-dim hover:border-line-hi hover:text-text"
+            }`}
             onClick={() => canGoNext && setDate(offsetDate(date, 1))}
             title="Next day"
             disabled={!canGoNext}
@@ -168,92 +183,101 @@ export default function DailyEnergy() {
         </div>
       </div>
 
-      <div className="daily-card">
+      <div className="rounded-card border border-line bg-panel">
         {isLoading && !data ? (
-          <div className="daily-card__body">
-            <div className="daily-col daily-col--nums">
-              <div className="daily-skel daily-skel--sm" />
-              <div className="daily-skel daily-skel--lg" />
-              <div className="daily-skel daily-skel--lg" />
-              <div className="daily-skel daily-skel--md" style={{ marginTop: 8 }} />
+          <div className="grid min-h-44 grid-cols-1 items-stretch lg:grid-cols-12">
+            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
+              <div className="mb-2.5 h-2.5 w-1/2 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
+              <div className="mb-2.5 h-7 w-2/3 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
+              <div className="mb-2.5 h-7 w-2/3 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
+              <div className="mb-2.5 mt-2 h-3.5 w-4/5 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
             </div>
-            <div className="daily-col daily-col--detail">
+            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
               {[1, 2, 3, 4].map((n) => (
-                <div key={n} className="daily-skel daily-skel--md" />
+                <div
+                  key={n}
+                  className="mb-2.5 h-3.5 w-4/5 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line"
+                />
               ))}
             </div>
-            <div className="daily-col daily-col--chart daily-col--chart-skeleton" />
+            <div className="flex min-h-36 min-w-0 flex-col justify-between px-4 py-3.5 opacity-30 lg:col-span-6">
+              <div className="h-full rounded-card bg-line" />
+            </div>
           </div>
         ) : (
           <div
-            className="daily-card__body"
+            className="grid min-h-44 grid-cols-1 items-stretch lg:grid-cols-12"
             style={{ opacity: isFetching ? 0.5 : 1, transition: "opacity 0.15s" }}
           >
             {/* ── col 1: numbers ── */}
-            <div className="daily-col daily-col--nums">
-              <div className="daily-col__head mono">
+            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
+              <div className="mb-1 border-b border-line pb-1.5 font-mono text-xs tracking-wide text-faint">
                 {formatDateLong(date)}
                 {selected && (
-                  <span className="daily-coverage">
+                  <span className="text-xs text-faint opacity-70">
                     {" "}{selected.coverage_pct}% · {selected.snapshot_count} pts
                   </span>
                 )}
               </div>
               {selected ? (
                 <>
-                  <div className="daily-big-row">
-                    <span className="daily-big-label">Solar</span>
-                    <span className="daily-big-val" style={{ color: C.solar }}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-dim">Solar</span>
+                    <span className="font-mono text-xl font-medium tracking-tight tabular-nums" style={{ color: C.solar }}>
                       {kwhStr(selected.solar_kwh)}<small> kWh</small>
                     </span>
                   </div>
-                  <div className="daily-big-row">
-                    <span className="daily-big-label">Load</span>
-                    <span className="daily-big-val" style={{ color: C.load }}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-dim">Load</span>
+                    <span className="font-mono text-xl font-medium tracking-tight tabular-nums" style={{ color: C.load }}>
                       {kwhStr(selected.load_kwh)}<small> kWh</small>
                     </span>
                   </div>
-                  <div className="daily-col__divider" />
-                  <div className="daily-big-row daily-big-row--net">
-                    <span className="daily-big-label">Net</span>
+                  <div className="my-0.5 h-px bg-line" />
+                  <div className="mt-0.5 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-dim">Net</span>
                     <NetBadge net={selected.net_kwh} />
                   </div>
                 </>
               ) : (
-                <div className="daily-nodata mono">no data for this day</div>
+                <div className="py-2 font-mono text-xs tabular-nums text-faint">no data for this day</div>
               )}
             </div>
 
             {/* ── col 2: flow breakdown ── */}
-            <div className="daily-col daily-col--detail">
-              <div className="daily-col__head mono">Flow breakdown</div>
+            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
+              <div className="mb-1 border-b border-line pb-1.5 font-mono text-xs tracking-wide text-faint">
+                Flow breakdown
+              </div>
               {selected ? (
-                <div className="daily-breakdown">
-                  <div className="daily-breakdown__row">
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between gap-2.5 font-mono text-xs text-dim">
                     <span style={{ color: C.solar }}>PV → Load</span>
-                    <span>{kwhStr(selected.pv_to_load_kwh)} kWh</span>
+                    <span className="text-text">{kwhStr(selected.pv_to_load_kwh)} kWh</span>
                   </div>
-                  <div className="daily-breakdown__row">
+                  <div className="flex justify-between gap-2.5 font-mono text-xs text-dim">
                     <span style={{ color: C.charge }}>PV → Batt</span>
-                    <span>{kwhStr(selected.pv_to_battery_kwh)} kWh</span>
+                    <span className="text-text">{kwhStr(selected.pv_to_battery_kwh)} kWh</span>
                   </div>
-                  <div className="daily-breakdown__row">
+                  <div className="flex justify-between gap-2.5 font-mono text-xs text-dim">
                     <span style={{ color: C.discharge }}>Batt → Load</span>
-                    <span>{kwhStr(selected.battery_to_load_kwh)} kWh</span>
+                    <span className="text-text">{kwhStr(selected.battery_to_load_kwh)} kWh</span>
                   </div>
-                  <div className="daily-breakdown__row">
+                  <div className="flex justify-between gap-2.5 font-mono text-xs text-dim">
                     <span style={{ color: C.grid }}>Grid → Load</span>
-                    <span>{kwhStr(selected.grid_to_load_kwh)} kWh</span>
+                    <span className="text-text">{kwhStr(selected.grid_to_load_kwh)} kWh</span>
                   </div>
                 </div>
               ) : (
-                <div className="daily-nodata mono">—</div>
+                <div className="py-2 font-mono text-xs tabular-nums text-faint">—</div>
               )}
             </div>
 
             {/* ── col 3: 7-day chart ── */}
-            <div className="daily-col daily-col--chart">
-              <div className="daily-col__head mono">7-day comparison</div>
+            <div className="flex min-w-0 flex-col justify-between px-4 py-3.5 lg:col-span-6">
+              <div className="mb-1 border-b border-line pb-1.5 font-mono text-xs tracking-wide text-faint">
+                7-day comparison
+              </div>
               {days.length > 1 && (
                 <DailyBarChart days={days} selectedDate={date} />
               )}

@@ -42,7 +42,7 @@ export default function App() {
   const firstLoad = summary.isLoading && !summary.data;
 
   return (
-    <div className="app">
+    <div className="mx-auto max-w-7xl px-6 pb-16 pt-4">
       <Header
         deviceSn={deviceSn}
         latest={latest}
@@ -52,10 +52,10 @@ export default function App() {
       />
 
       {firstLoad ? (
-        <div className="loading">Connecting to device…</div>
+        <div className="p-10 text-center font-mono text-dim">Connecting to device…</div>
       ) : (
         <>
-          <div className="flow-main">
+          <div className="mt-4">
             <EnergyFlow
               latest={latest}
               summary={summary.data?.summary ?? null}

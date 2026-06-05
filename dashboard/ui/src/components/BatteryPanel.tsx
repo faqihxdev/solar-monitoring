@@ -53,13 +53,13 @@ export default function BatteryPanel({
     switchT != null ? arcPath(180, thetaForPct(15)) : null;
 
   return (
-    <div className="panel battery fade-in">
-      <div className="panel__label">
+    <div className="animate-[fadein_0.5s_ease_both] flex min-h-84 flex-col justify-between rounded-card border border-line bg-panel p-4">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
         <Battery size={14} strokeWidth={1.8} /> Battery
       </div>
 
-      <div className="gauge-wrap">
-        <svg viewBox="0 0 240 150" className="gauge-svg" width="100%">
+      <div className="relative mx-auto mt-2.5 w-full max-w-xs">
+        <svg viewBox="0 0 240 150" width="100%">
           {/* track */}
           <path
             d={arcPath(180, 0)}
@@ -90,37 +90,37 @@ export default function BatteryPanel({
             />
           )}
         </svg>
-        <div className="gauge-center">
-          <div className="gauge-soc mono" style={{ color }}>
+        <div className="absolute bottom-2 left-0 right-0 text-center">
+          <div className="font-mono text-5xl font-medium leading-none tabular-nums" style={{ color }}>
             {gaugePct != null ? Math.round(gaugePct) : "—"}
-            <small>%</small>
+            <small className="text-xl text-dim">%</small>
           </div>
-          <div className="gauge-state" style={{ color }}>
+          <div className="mt-1 text-sm font-semibold uppercase tracking-wider" style={{ color }}>
             Practical SOC · {statusLabel(status)}
           </div>
         </div>
       </div>
 
-      <div className="batt-meta">
-        <div className="batt-meta__cell">
-          <div className="batt-meta__k">Pack voltage</div>
-          <div className="batt-meta__v mono">
+      <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line">
+        <div className="bg-panel px-3 py-2.5">
+          <div className="text-xs uppercase tracking-widest text-faint">Pack voltage</div>
+          <div className="mt-1 font-mono text-lg tabular-nums">
             {latest?.battery_voltage != null ? num(latest.battery_voltage, 1) : "—"}{" "}
-            <small>V</small>
+            <small className="text-xs text-dim">V</small>
           </div>
         </div>
-        <div className="batt-meta__cell">
-          <div className="batt-meta__k">{eta ? "Voltage ETA" : "Reported SOC"}</div>
-          <div className="batt-meta__v mono">
+        <div className="bg-panel px-3 py-2.5">
+          <div className="text-xs uppercase tracking-widest text-faint">{eta ? "Voltage ETA" : "Reported SOC"}</div>
+          <div className="mt-1 font-mono text-lg tabular-nums">
             {eta ? (
               <span style={{ fontSize: 15 }}>{eta.label}</span>
             ) : latest?.battery_soc != null ? (
               <>
-                {Math.round(latest.battery_soc)} <small>%</small>
+                {Math.round(latest.battery_soc)} <small className="text-xs text-dim">%</small>
               </>
             ) : summary?.soc_min != null && summary?.soc_max != null ? (
               <>
-                {Math.round(summary.soc_min)}–{Math.round(summary.soc_max)} <small>%</small>
+                {Math.round(summary.soc_min)}–{Math.round(summary.soc_max)} <small className="text-xs text-dim">%</small>
               </>
             ) : (
               "—"
