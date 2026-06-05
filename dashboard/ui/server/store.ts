@@ -9,6 +9,45 @@ import type { AuthSession, JsonRecord } from "./types";
 
 type Row = Record<string, SqlValue>;
 
+export interface ControlValueRecord extends JsonRecord {
+  device_sn: string;
+  field_id: string;
+  label: string;
+  unit: string;
+  scale: number;
+  raw_value: string | null;
+  pack_value: number | null;
+  source: string;
+  read_at: number;
+  updated_at: number;
+}
+
+export interface ControlEventInput {
+  deviceSn: string;
+  fieldId?: string | null;
+  action: string;
+  actor: string;
+  status: string;
+  reason: string;
+  valueBefore?: string | null;
+  valueAfter?: string | null;
+  details?: JsonRecord;
+}
+
+export interface AutomationStateRecord extends JsonRecord {
+  device_sn: string;
+  enabled: number;
+  target_practical_soc: number;
+  target_time: string;
+  baseline_a6: number;
+  active_override: number;
+  override_value: number | null;
+  next_check_at: number | null;
+  last_decision: string | null;
+  last_reason: string | null;
+  updated_at: number;
+}
+
 const FLOW_COLUMNS = [
   "pv_to_load_kw",
   "battery_to_load_kw",
@@ -263,6 +302,56 @@ export class TelemetryStore {
         ON battery_voltage_readings(device_sn, sampled_at DESC);
       CREATE INDEX IF NOT EXISTS idx_telemetry_soc
         ON telemetry_snapshots(device_sn, battery_soc, polled_at DESC);
+      CREATE TABLE IF NOT EXISTS control_values (
+        device_sn TEXT NOT NULL,
+        field_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        scale REAL NOT NULL,
+        raw_value TEXT,
+        pack_value REAL,
+        source TEXT NOT NULL,
+        read_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        PRIMARY KEY (device_sn, field_id)
+      );
+      CREATE TABLE IF NOT EXISTS control_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_sn TEXT NOT NULL,
+        field_id TEXT,
+        action TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        value_before TEXT,
+        value_after TEXT,
+        details_json TEXT,
+        created_at REAL NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_control_events_device_time
+        ON control_events(device_sn, created_at DESC);
+      CREATE TABLE IF NOT EXISTS automation_state (
+        device_sn TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL,
+        target_practical_soc REAL NOT NULL,
+        target_time TEXT NOT NULL,
+        baseline_a6 REAL NOT NULL,
+        active_override INTEGER NOT NULL,
+        override_value REAL,
+        next_check_at REAL,
+        last_decision TEXT,
+        last_reason TEXT,
+        updated_at REAL NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS automation_write_budget (
+        device_sn TEXT NOT NULL,
+        field_id TEXT NOT NULL,
+        date_key TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        count INTEGER NOT NULL,
+        last_write_at REAL,
+        PRIMARY KEY (device_sn, field_id, date_key, actor)
+      );
     `);
     this.ensureColumns("telemetry_snapshots", {
       battery_soc: "REAL",
@@ -334,6 +423,222 @@ export class TelemetryStore {
       [token, secret, expiresAt, nowSeconds()],
     );
     this.flush();
+  }
+
+  upsertControlValue(args: {
+    deviceSn: string;
+    fieldId: string;
+    label: string;
+    unit: string;
+    scale: number;
+    rawValue: string | null;
+    source: string;
+    readAt?: number;
+  }): ControlValueRecord {
+    const readAt = args.readAt ?? nowSeconds();
+    const rawNumber = args.rawValue == null ? null : Number(args.rawValue);
+    const packValue =
+      args.scale !== 1 && rawNumber != null && Number.isFinite(rawNumber)
+        ? rawNumber * args.scale
+        : null;
+    this.db.run(
+      `
+      INSERT INTO control_values (
+        device_sn, field_id, label, unit, scale, raw_value,
+        pack_value, source, read_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(device_sn, field_id) DO UPDATE SET
+        label = excluded.label,
+        unit = excluded.unit,
+        scale = excluded.scale,
+        raw_value = excluded.raw_value,
+        pack_value = excluded.pack_value,
+        source = excluded.source,
+        read_at = excluded.read_at,
+        updated_at = excluded.updated_at
+      `,
+      [
+        args.deviceSn,
+        args.fieldId,
+        args.label,
+        args.unit,
+        args.scale,
+        args.rawValue,
+        packValue,
+        args.source,
+        readAt,
+        readAt,
+      ],
+    );
+    this.flush();
+    return this.controlValue(args.deviceSn, args.fieldId) as ControlValueRecord;
+  }
+
+  controlValue(deviceSn: string, fieldId: string): ControlValueRecord | null {
+    this.refresh();
+    const row = this.queryOne(
+      `
+      SELECT device_sn, field_id, label, unit, scale, raw_value,
+             pack_value, source, read_at, updated_at
+      FROM control_values
+      WHERE device_sn = ? AND field_id = ?
+      `,
+      [deviceSn, fieldId],
+    );
+    return row ? (rowToRecord(row) as ControlValueRecord) : null;
+  }
+
+  controlValues(deviceSn: string): ControlValueRecord[] {
+    this.refresh();
+    return this.queryAll(
+      `
+      SELECT device_sn, field_id, label, unit, scale, raw_value,
+             pack_value, source, read_at, updated_at
+      FROM control_values
+      WHERE device_sn = ?
+      ORDER BY field_id ASC
+      `,
+      [deviceSn],
+    ).map((item) => rowToRecord(item) as ControlValueRecord);
+  }
+
+  addControlEvent(input: ControlEventInput): JsonRecord {
+    const createdAt = nowSeconds();
+    this.db.run(
+      `
+      INSERT INTO control_events (
+        device_sn, field_id, action, actor, status, reason,
+        value_before, value_after, details_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        input.deviceSn,
+        input.fieldId ?? null,
+        input.action,
+        input.actor,
+        input.status,
+        input.reason,
+        input.valueBefore ?? null,
+        input.valueAfter ?? null,
+        input.details ? JSON.stringify(input.details) : null,
+        createdAt,
+      ],
+    );
+    this.flush();
+    return this.queryOne(
+      `
+      SELECT id, device_sn, field_id, action, actor, status, reason,
+             value_before, value_after, details_json, created_at
+      FROM control_events
+      WHERE id = last_insert_rowid()
+      `,
+    ) as JsonRecord;
+  }
+
+  controlEvents(deviceSn: string, limit = 80): JsonRecord[] {
+    this.refresh();
+    return this.queryAll(
+      `
+      SELECT id, device_sn, field_id, action, actor, status, reason,
+             value_before, value_after, details_json, created_at
+      FROM control_events
+      WHERE device_sn = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+      `,
+      [deviceSn, limit],
+    ).map((item) => {
+      const event = rowToRecord(item);
+      event.details = parseJsonObject(event.details_json);
+      delete event.details_json;
+      return event;
+    });
+  }
+
+  automationState(deviceSn: string): AutomationStateRecord | null {
+    this.refresh();
+    const row = this.queryOne(
+      `
+      SELECT device_sn, enabled, target_practical_soc, target_time,
+             baseline_a6, active_override, override_value, next_check_at,
+             last_decision, last_reason, updated_at
+      FROM automation_state
+      WHERE device_sn = ?
+      `,
+      [deviceSn],
+    );
+    return row ? (rowToRecord(row) as AutomationStateRecord) : null;
+  }
+
+  saveAutomationState(
+    deviceSn: string,
+    state: Omit<AutomationStateRecord, "device_sn" | "updated_at">,
+  ): AutomationStateRecord {
+    const updatedAt = nowSeconds();
+    this.db.run(
+      `
+      INSERT INTO automation_state (
+        device_sn, enabled, target_practical_soc, target_time,
+        baseline_a6, active_override, override_value, next_check_at,
+        last_decision, last_reason, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(device_sn) DO UPDATE SET
+        enabled = excluded.enabled,
+        target_practical_soc = excluded.target_practical_soc,
+        target_time = excluded.target_time,
+        baseline_a6 = excluded.baseline_a6,
+        active_override = excluded.active_override,
+        override_value = excluded.override_value,
+        next_check_at = excluded.next_check_at,
+        last_decision = excluded.last_decision,
+        last_reason = excluded.last_reason,
+        updated_at = excluded.updated_at
+      `,
+      [
+        deviceSn,
+        state.enabled as SqlValue,
+        state.target_practical_soc as SqlValue,
+        state.target_time as SqlValue,
+        state.baseline_a6 as SqlValue,
+        state.active_override as SqlValue,
+        state.override_value as SqlValue,
+        state.next_check_at as SqlValue,
+        state.last_decision as SqlValue,
+        state.last_reason as SqlValue,
+        updatedAt,
+      ],
+    );
+    this.flush();
+    return this.automationState(deviceSn) as AutomationStateRecord;
+  }
+
+  writeBudget(deviceSn: string, fieldId: string, dateKey: string, actor: string): JsonRecord {
+    this.refresh();
+    const row = this.queryOne(
+      `
+      SELECT device_sn, field_id, date_key, actor, count, last_write_at
+      FROM automation_write_budget
+      WHERE device_sn = ? AND field_id = ? AND date_key = ? AND actor = ?
+      `,
+      [deviceSn, fieldId, dateKey, actor],
+    );
+    return row ? rowToRecord(row) : { device_sn: deviceSn, field_id: fieldId, date_key: dateKey, actor, count: 0, last_write_at: null };
+  }
+
+  incrementWriteBudget(deviceSn: string, fieldId: string, dateKey: string, actor: string): JsonRecord {
+    const now = nowSeconds();
+    this.db.run(
+      `
+      INSERT INTO automation_write_budget (device_sn, field_id, date_key, actor, count, last_write_at)
+      VALUES (?, ?, ?, ?, 1, ?)
+      ON CONFLICT(device_sn, field_id, date_key, actor) DO UPDATE SET
+        count = count + 1,
+        last_write_at = excluded.last_write_at
+      `,
+      [deviceSn, fieldId, dateKey, actor, now],
+    );
+    this.flush();
+    return this.writeBudget(deviceSn, fieldId, dateKey, actor);
   }
 
   buildPayload(lastData: JsonRecord, energyFlow: JsonRecord): JsonRecord {
@@ -722,6 +1027,18 @@ function payloadReadingsRaw(payloadJson: unknown): JsonRecord {
       : {};
   } catch {
     return {};
+  }
+}
+
+function parseJsonObject(payloadJson: unknown): JsonRecord | null {
+  if (!payloadJson) return null;
+  try {
+    const parsed = JSON.parse(String(payloadJson));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as JsonRecord)
+      : null;
+  } catch {
+    return null;
   }
 }
 

@@ -53,6 +53,7 @@ export interface ConfigResponse {
   device_sn: string;
   device_pn: string;
   db_path: string;
+  control_db_path: string;
   server_now: number;
 }
 
@@ -144,9 +145,125 @@ export interface DailyEnergyResponse {
   daily: DailyPoint[];
 }
 
+export interface ControlOption {
+  value: string;
+  label: string;
+}
+
+export interface ControlEntry {
+  id: string;
+  label: string;
+  group: "battery" | "other";
+  unit: string;
+  scale: number;
+  writable: boolean;
+  type: "number" | "enum" | "text";
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: ControlOption[];
+  hint?: string;
+  raw_value: string | null;
+  pack_value: number | null;
+  read_at: number | null;
+  stale_after: number;
+  stale: boolean;
+}
+
+export interface ControlsResponse {
+  device_sn: string;
+  controls: ControlEntry[];
+  errors?: { id: string; error: string }[];
+  source: string;
+}
+
+export interface ControlEvent {
+  id: number;
+  device_sn: string;
+  field_id: string | null;
+  action: string;
+  actor: string;
+  status: string;
+  reason: string;
+  value_before: string | null;
+  value_after: string | null;
+  created_at: number;
+  details?: Record<string, unknown> | null;
+}
+
+export interface ControlLogResponse {
+  device_sn: string;
+  events: ControlEvent[];
+}
+
+export interface AutomationState {
+  device_sn: string;
+  enabled: number;
+  target_practical_soc: number;
+  target_time: string;
+  baseline_a6: number;
+  active_override: number;
+  override_value: number | null;
+  next_check_at: number | null;
+  last_decision: string | null;
+  last_reason: string | null;
+  updated_at: number;
+}
+
+export interface AutomationStatus {
+  enabled: boolean;
+  state: AutomationState;
+  decision: string;
+  reason: string;
+  target_voltage: number | null;
+  desired_practical_soc_now: number | null;
+  latest: Reading | null;
+  practical_soc: number | null;
+  next_check_at: number | null;
+}
+
+export interface AutomationResponse {
+  device_sn: string;
+  automation: AutomationStatus;
+  state?: AutomationState;
+}
+
+export interface AutomationUpdateRequest {
+  enabled?: boolean;
+  target_practical_soc?: number;
+  target_time?: string;
+  baseline_a6?: number;
+}
+
+export interface ControlWriteResponse {
+  device_sn: string;
+  result: {
+    field_id: string;
+    status: "skipped" | "written" | "failed";
+    reason: string;
+    before: string | null;
+    requested: string;
+    verified: string | null;
+  };
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+async function postJson<T>(url: string, body: unknown = {}): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    throw new Error(String(payload?.error ?? `${url} -> ${res.status}`));
+  }
   return res.json() as Promise<T>;
 }
 
@@ -155,6 +272,18 @@ export const api = {
   summary: () => getJson<SummaryResponse>("/api/summary"),
   thresholds: () => getJson<ThresholdsResponse>("/api/thresholds"),
   controlAudit: () => getJson<ControlAuditResponse>("/api/control-audit"),
+  controls: () => getJson<ControlsResponse>("/api/controls"),
+  controlLog: (limit = 80) => getJson<ControlLogResponse>(`/api/control-log?limit=${limit}`),
+  readAllControls: () => postJson<ControlsResponse>("/api/controls/read-all"),
+  readControl: (id: string) =>
+    postJson<{ device_sn: string; control: ControlEntry }>(`/api/controls/${id}/read`),
+  writeControl: (id: string, value: string, reason: string) =>
+    postJson<ControlWriteResponse>(`/api/controls/${id}/write`, { value, reason }),
+  runA6Test: () => postJson<{ device_sn: string; result: Record<string, unknown> }>("/api/controls/a6-test"),
+  automation: () => getJson<AutomationResponse>("/api/automation"),
+  updateAutomation: (body: AutomationUpdateRequest) =>
+    postJson<AutomationResponse>("/api/automation", body),
+  evaluateAutomation: () => postJson<AutomationResponse>("/api/automation/evaluate"),
   history: (hours: number) =>
     getJson<HistoryResponse>(`/api/history?hours=${hours}`),
   voltage: (hours: number) =>

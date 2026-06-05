@@ -3,6 +3,8 @@ import { config } from "./env";
 import { DessmonitorClient } from "./dessClient";
 import { TelemetryStore } from "./store";
 import { fetchThresholdCatalog, thresholdCatalogDefaults } from "./thresholds";
+import { ControlService } from "./controlService";
+import { AutomationEngine } from "./automation";
 import type { DeviceSettings, JsonRecord } from "./types";
 
 const HISTORY_POINT_FIELDS = [
@@ -32,22 +34,6 @@ const HISTORY_POINT_FIELDS = [
   "battery_voltage_sampled_at_raw",
   "polled_at",
 ];
-
-const CONTROL_AUDIT_FIELDS = [
-  ["work_pattern_contlow", "Work pattern [A0]", "", 1],
-  ["charging_gear_setting", "AC charging gear [A1]", "", 1],
-  ["bat_charging_current", "AC charging current [A1]", "", 1],
-  ["bat_single_battery_average_charge_setting", "Single battery average charge [A2]", "V", 2],
-  ["bat_single_battery_float_charge_setting", "Single battery float charge [A3]", "V", 2],
-  ["bat_low_voltage_protection_value", "Low voltage protection [A4]", "V", 2],
-  ["bat_low_voltage_recovery_value", "Low battery recovery [A5]", "V", 2],
-  ["bat_power_supply_value", "Return to inverter [A6]", "V", 2],
-  ["bat_mains_power_supply_value", "Switch to mains [A7]", "V", 2],
-  ["battery_type_conthigh", "Battery type [A10]", "", 1],
-  ["lithium_battery_conthigh", "SOC to inverter", "%", 1],
-  ["lithium_battery_contlow", "SOC to mains", "%", 1],
-  ["power_value", "Power Value Setting", "W", 1],
-] as const;
 
 const settings: Required<DeviceSettings> = {
   pn: config.pn,
@@ -89,12 +75,27 @@ function makeDessClient(): DessmonitorClient {
   return new DessmonitorClient(config.usr, config.pwd, config.companyKey);
 }
 
-async function route(pathname: string, searchParams: URLSearchParams, store: TelemetryStore) {
+interface ApiContext {
+  readStore: TelemetryStore;
+  controlStore: TelemetryStore;
+  controlService: ControlService;
+  automation: AutomationEngine;
+}
+
+async function route(
+  method: string,
+  pathname: string,
+  searchParams: URLSearchParams,
+  body: JsonRecord,
+  context: ApiContext,
+) {
+  const { readStore: store, controlStore, controlService, automation } = context;
   if (pathname === "/api/config") {
     return {
       device_sn: config.sn,
       device_pn: config.pn,
       db_path: config.dbPath,
+      control_db_path: config.controlDbPath,
       server_now: Date.now() / 1000,
     };
   }
@@ -183,34 +184,88 @@ async function route(pathname: string, searchParams: URLSearchParams, store: Tel
   }
 
   if (pathname === "/api/control-audit") {
-    const client = makeDessClient();
-    const controls = [];
-    const errors = [];
-    for (const [fieldId, label, unit, scale] of CONTROL_AUDIT_FIELDS) {
-      try {
-        const payload = await client.queryDeviceCtrlValue({ ...settings, fieldId });
-        const dat = (payload.dat ?? {}) as JsonRecord;
-        const raw = dat.val;
-        let packValue: number | null = null;
-        if (raw != null && scale !== 1) {
-          const n = Number(raw);
-          packValue = Number.isFinite(n) ? n * scale : null;
-        }
-        controls.push({
-          id: fieldId,
-          name: dat.name ?? label,
-          label,
-          value: raw ?? null,
-          unit,
-          scale,
-          pack_value: packValue,
-          pack_unit: packValue != null ? unit : "",
-        });
-      } catch (exc) {
-        errors.push({ id: fieldId, error: String(exc instanceof Error ? exc.message : exc) });
-      }
-    }
+    const { controls: readControls, errors } = await controlService.readAllControls(
+      "user",
+      "Control audit refresh",
+    );
+    const important = new Set([
+      "work_pattern_contlow",
+      "charging_gear_setting",
+      "bat_charging_current",
+      "bat_single_battery_average_charge_setting",
+      "bat_single_battery_float_charge_setting",
+      "bat_low_voltage_protection_value",
+      "bat_low_voltage_recovery_value",
+      "bat_power_supply_value",
+      "bat_mains_power_supply_value",
+      "battery_type_conthigh",
+      "lithium_battery_conthigh",
+      "lithium_battery_contlow",
+      "power_value",
+    ]);
+    const controls = readControls
+      .filter((entry) => important.has(String(entry.id)))
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.label,
+        label: entry.label,
+        value: entry.raw_value,
+        unit: entry.unit,
+        scale: entry.scale,
+        pack_value: entry.pack_value,
+        pack_unit: entry.pack_value != null ? entry.unit : "",
+      }));
     return { device_sn: config.sn, controls, errors, source: "device" };
+  }
+
+  if (pathname === "/api/controls" && method === "GET") {
+    return { device_sn: config.sn, controls: controlService.listControls(), source: "cache" };
+  }
+
+  if (pathname === "/api/control-log" && method === "GET") {
+    const limit = clamp(Number(searchParams.get("limit") ?? 80), 10, 250);
+    return { device_sn: config.sn, events: controlStore.controlEvents(config.sn, limit) };
+  }
+
+  if (pathname === "/api/controls/read-all" && method === "POST") {
+    const payload = await controlService.readAllControls("manual", "Manual read-all refresh");
+    return { device_sn: config.sn, ...payload };
+  }
+
+  const readMatch = pathname.match(/^\/api\/controls\/([^/]+)\/read$/);
+  if (readMatch && method === "POST") {
+    const control = await controlService.readControl(readMatch[1], "manual", "Manual control refresh");
+    return { device_sn: config.sn, control };
+  }
+
+  const writeMatch = pathname.match(/^\/api\/controls\/([^/]+)\/write$/);
+  if (writeMatch && method === "POST") {
+    const result = await controlService.guardedWrite(
+      writeMatch[1],
+      body.value,
+      String(body.reason ?? "Manual control write"),
+      "manual",
+    );
+    return { device_sn: config.sn, result };
+  }
+
+  if (pathname === "/api/controls/a6-test" && method === "POST") {
+    const result = await controlService.runA6WriteRestoreTest();
+    return { device_sn: config.sn, result };
+  }
+
+  if (pathname === "/api/automation" && method === "GET") {
+    return { device_sn: config.sn, automation: automation.status() };
+  }
+
+  if (pathname === "/api/automation" && method === "POST") {
+    const state = automation.updateState(body);
+    const status = body.enabled === false ? await automation.evaluate("Manual disable") : automation.status();
+    return { device_sn: config.sn, state, automation: status };
+  }
+
+  if (pathname === "/api/automation/evaluate" && method === "POST") {
+    return { device_sn: config.sn, automation: await automation.evaluate("Manual evaluation") };
   }
 
   return null;
@@ -229,7 +284,37 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown): v
   res.end(JSON.stringify(payload));
 }
 
-const store = await TelemetryStore.open(config.dbPath, { readOnly: true });
+function readBody(req: http.IncomingMessage): Promise<JsonRecord> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => {
+      chunks.push(Buffer.from(chunk));
+      if (Buffer.concat(chunks).length > 128 * 1024) {
+        reject(new Error("Request body too large"));
+      }
+    });
+    req.on("end", () => {
+      if (!chunks.length) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as JsonRecord);
+      } catch {
+        reject(new Error("Invalid JSON request body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+const readStore = await TelemetryStore.open(config.dbPath, { readOnly: true });
+const controlStore = await TelemetryStore.open(config.controlDbPath);
+const controlClient = makeDessClient();
+const controlService = new ControlService(controlClient, controlStore, readStore, settings);
+const automation = new AutomationEngine(readStore, controlStore, controlService, config.sn);
+const context: ApiContext = { readStore, controlStore, controlService, automation };
+
 const server = http.createServer((req, res) => {
   void (async () => {
     try {
@@ -238,7 +323,9 @@ const server = http.createServer((req, res) => {
         sendJson(res, 404, { detail: "Not Found" });
         return;
       }
-      const payload = await route(url.pathname, url.searchParams, store);
+      const method = req.method ?? "GET";
+      const body = method === "POST" || method === "PUT" || method === "PATCH" ? await readBody(req) : {};
+      const payload = await route(method, url.pathname, url.searchParams, body, context);
       if (payload == null) sendJson(res, 404, { detail: "Not Found" });
       else sendJson(res, 200, payload);
     } catch (exc) {
@@ -250,3 +337,25 @@ const server = http.createServer((req, res) => {
 server.listen(config.apiPort, "127.0.0.1", () => {
   console.log(`TypeScript API listening on http://127.0.0.1:${config.apiPort}`);
 });
+
+let automationRunning = false;
+const automationIntervalMs = Number(process.env.AUTOMATION_CHECK_INTERVAL_SECONDS ?? "300") * 1000;
+setInterval(() => {
+  if (automationRunning) return;
+  automationRunning = true;
+  void automation
+    .evaluate("Scheduled automation check")
+    .catch((exc) => {
+      controlStore.addControlEvent({
+        deviceSn: config.sn,
+        fieldId: "bat_power_supply_value",
+        action: "automation_decision",
+        actor: "automation",
+        status: "failed",
+        reason: String(exc instanceof Error ? exc.message : exc),
+      });
+    })
+    .finally(() => {
+      automationRunning = false;
+    });
+}, automationIntervalMs);

@@ -23,6 +23,7 @@ export const config = {
   devaddr: process.env.DESS_DEVADDR ?? "1",
   i18n: process.env.DESS_I18N ?? "en_US",
   dbPath: path.resolve(projectRoot, process.env.DESS_DB_PATH ?? "data/solar.db"),
+  controlDbPath: path.resolve(projectRoot, process.env.DESS_CONTROL_DB_PATH ?? "data/solar-control.db"),
   apiPort: Number(process.env.DESS_DASHBOARD_PORT ?? "8080"),
 };
 

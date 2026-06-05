@@ -1,14 +1,14 @@
 import { useState } from "react";
 import Header from "./components/Header";
 import EnergyFlow from "./components/EnergyFlow";
-import ControlAudit from "./components/ControlAudit";
 import Charts from "./components/Charts";
 import DailyEnergy from "./components/DailyEnergy";
+import ControlCenter from "./components/ControlCenter";
 import {
   useConfig,
   useSummary,
   useThresholds,
-  useControlAudit,
+  useControls,
   useHistory,
   useVoltage,
 } from "./hooks";
@@ -19,7 +19,7 @@ export default function App() {
   const config = useConfig();
   const summary = useSummary();
   const thresholds = useThresholds();
-  const controlAudit = useControlAudit();
+  const controls = useControls();
   const history = useHistory(hours);
   const voltage = useVoltage(hours);
 
@@ -33,10 +33,10 @@ export default function App() {
   const voltageThresholds = thresholds.data?.thresholds.battery_voltage ?? [];
 
   // Rated output ("Power Value Setting" control, in W) used as the load gauge max.
-  const powerValueControl = controlAudit.data?.controls.find((c) => c.id === "power_value");
+  const powerValueControl = controls.data?.controls.find((c) => c.id === "power_value");
   const loadMaxKw =
-    powerValueControl?.value != null && Number.isFinite(Number(powerValueControl.value))
-      ? Number(powerValueControl.value) / 1000
+    powerValueControl?.raw_value != null && Number.isFinite(Number(powerValueControl.raw_value))
+      ? Number(powerValueControl.raw_value) / 1000
       : null;
 
   const firstLoad = summary.isLoading && !summary.data;
@@ -77,11 +77,7 @@ export default function App() {
 
           <DailyEnergy />
 
-          <ControlAudit
-            audit={controlAudit.data}
-            loading={controlAudit.isLoading}
-            error={controlAudit.error}
-          />
+          <ControlCenter />
         </>
       )}
     </div>

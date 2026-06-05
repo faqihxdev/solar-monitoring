@@ -116,6 +116,20 @@ export class DessmonitorClient {
     });
   }
 
+  async ctrlDevice(args: DeviceArgs & { fieldId: string; value: string }): Promise<JsonObject> {
+    await this.ensureSession();
+    return this.signedRequest({
+      action: "ctrlDevice",
+      source: this.source,
+      devcode: args.devcode,
+      pn: args.pn,
+      devaddr: args.devaddr,
+      sn: args.sn,
+      id: args.fieldId,
+      val: args.value,
+    });
+  }
+
   async queryDeviceEnergyFlow(args: Omit<DeviceArgs, "i18n">): Promise<JsonObject> {
     await this.ensureSession();
     return this.signedRequest({
