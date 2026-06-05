@@ -5,6 +5,7 @@ import initSqlJs, { type Database, type SqlJsStatic, type SqlValue } from "sql.j
 import { parseDetailsDat, type VoltageSample } from "./details";
 import { effectiveGridPower, inferEnergyFlows } from "./flows";
 import { sqlJsWasmPath } from "./env";
+import { BASELINE_A7_SINGLE_V } from "./controlCatalog";
 import type { AuthSession, JsonRecord } from "./types";
 
 type Row = Record<string, SqlValue>;
@@ -40,7 +41,10 @@ export interface AutomationStateRecord extends JsonRecord {
   target_practical_soc: number;
   target_time: string;
   baseline_a6: number;
+  baseline_a7: number;
   active_override: number;
+  override_a6: number | null;
+  override_a7: number | null;
   override_value: number | null;
   next_check_at: number | null;
   last_decision: string | null;
@@ -336,7 +340,10 @@ export class TelemetryStore {
         target_practical_soc REAL NOT NULL,
         target_time TEXT NOT NULL,
         baseline_a6 REAL NOT NULL,
+        baseline_a7 REAL,
         active_override INTEGER NOT NULL,
+        override_a6 REAL,
+        override_a7 REAL,
         override_value REAL,
         next_check_at REAL,
         last_decision TEXT,
@@ -375,6 +382,11 @@ export class TelemetryStore {
       battery_flow_unmetered: "INTEGER",
     });
     this.ensureColumns("battery_voltage_readings", { sampled_at_raw: "TEXT" });
+    this.ensureColumns("automation_state", {
+      baseline_a7: "REAL",
+      override_a6: "REAL",
+      override_a7: "REAL",
+    });
     this.flush();
   }
 
@@ -560,12 +572,17 @@ export class TelemetryStore {
     const row = this.queryOne(
       `
       SELECT device_sn, enabled, target_practical_soc, target_time,
-             baseline_a6, active_override, override_value, next_check_at,
+             baseline_a6, COALESCE(baseline_a7, ?) AS baseline_a7,
+             active_override,
+             COALESCE(override_a6, override_value) AS override_a6,
+             override_a7,
+             override_value,
+             next_check_at,
              last_decision, last_reason, updated_at
       FROM automation_state
       WHERE device_sn = ?
       `,
-      [deviceSn],
+      [BASELINE_A7_SINGLE_V, deviceSn],
     );
     return row ? (rowToRecord(row) as AutomationStateRecord) : null;
   }
@@ -579,15 +596,18 @@ export class TelemetryStore {
       `
       INSERT INTO automation_state (
         device_sn, enabled, target_practical_soc, target_time,
-        baseline_a6, active_override, override_value, next_check_at,
+        baseline_a6, baseline_a7, active_override, override_a6, override_a7, override_value, next_check_at,
         last_decision, last_reason, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(device_sn) DO UPDATE SET
         enabled = excluded.enabled,
         target_practical_soc = excluded.target_practical_soc,
         target_time = excluded.target_time,
         baseline_a6 = excluded.baseline_a6,
+        baseline_a7 = excluded.baseline_a7,
         active_override = excluded.active_override,
+        override_a6 = excluded.override_a6,
+        override_a7 = excluded.override_a7,
         override_value = excluded.override_value,
         next_check_at = excluded.next_check_at,
         last_decision = excluded.last_decision,
@@ -600,7 +620,10 @@ export class TelemetryStore {
         state.target_practical_soc as SqlValue,
         state.target_time as SqlValue,
         state.baseline_a6 as SqlValue,
+        state.baseline_a7 as SqlValue,
         state.active_override as SqlValue,
+        state.override_a6 as SqlValue,
+        state.override_a7 as SqlValue,
         state.override_value as SqlValue,
         state.next_check_at as SqlValue,
         state.last_decision as SqlValue,

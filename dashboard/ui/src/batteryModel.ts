@@ -1,5 +1,5 @@
 import type { Reading, ThresholdEntry } from "./api";
-import { isOnMains, num } from "./format";
+import { isOnMains } from "./format";
 
 const A6_ID = "a6_return_pln";
 const A7_ID = "a7_switch_pln";
@@ -25,11 +25,12 @@ export interface PracticalBattery {
   bufferLabel: string;
 }
 
-export interface VoltageEta {
+export interface PracticalEta {
   label: string;
   targetId: "A6" | "A7";
   targetVoltage: number;
-  slopeVPerHour: number;
+  targetSoc: number;
+  slopePctPerHour: number;
 }
 
 function clampPct(value: number): number {
@@ -158,8 +159,10 @@ export function practicalBattery(
   };
 }
 
-function fitVoltageSlope(points: Reading[]): number | null {
-  const rows = points.filter((p) => p.battery_voltage != null);
+function fitPracticalSocSlope(points: Reading[]): number | null {
+  const rows = points
+    .map((p) => ({ polled_at: p.polled_at, practical_soc: practicalSocPct(p.battery_voltage) }))
+    .filter((p): p is { polled_at: number; practical_soc: number } => p.practical_soc != null);
   if (rows.length < 4) return null;
   const t0 = rows[0].polled_at;
   let sx = 0;
@@ -168,7 +171,7 @@ function fitVoltageSlope(points: Reading[]): number | null {
   let sxy = 0;
   for (const p of rows) {
     const x = (p.polled_at - t0) / 3600;
-    const y = p.battery_voltage as number;
+    const y = p.practical_soc;
     sx += x;
     sy += y;
     sxx += x * x;
@@ -188,14 +191,16 @@ function formatDuration(hours: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function estimateVoltageEta(
+export function estimatePracticalEta(
   history: Reading[],
   latest: Reading | null | undefined,
   thresholds: ThresholdEntry[]
-): VoltageEta | null {
+): PracticalEta | null {
   const voltage = latest?.battery_voltage ?? null;
   const { a6, a7 } = batteryThresholds(thresholds);
   if (voltage == null || a6 == null || a7 == null || history.length < 4) return null;
+  const practicalSoc = practicalSocPct(voltage);
+  if (practicalSoc == null) return null;
 
   const onMains = isOnMains(latest?.working_state);
   const discharging = latest?.battery_status === 1 && !onMains;
@@ -203,14 +208,16 @@ export function estimateVoltageEta(
   const target = discharging ? a7 : recovering ? a6 : null;
   const targetId = discharging ? "A7" : recovering ? "A6" : null;
   if (target == null || targetId == null) return null;
+  const targetSoc = practicalSocPct(target);
+  if (targetSoc == null) return null;
 
   const now = history[history.length - 1]?.polled_at ?? latest?.polled_at;
   if (now == null) return null;
 
   const windows = [
-    { seconds: 45 * 60, minAbsSlope: 0.08 },
-    { seconds: 2 * 3600, minAbsSlope: 0.04 },
-    { seconds: 6 * 3600, minAbsSlope: 0.025 },
+    { seconds: 45 * 60, minAbsSlope: 2.0 },
+    { seconds: 2 * 3600, minAbsSlope: 1.0 },
+    { seconds: 6 * 3600, minAbsSlope: 0.5 },
   ];
 
   for (const window of windows) {
@@ -220,18 +227,19 @@ export function estimateVoltageEta(
       if (recovering) return p.battery_status === -1 || isOnMains(p.working_state);
       return false;
     });
-    const slope = fitVoltageSlope(pts);
+    const slope = fitPracticalSocSlope(pts);
     if (slope == null || Math.abs(slope) < window.minAbsSlope) continue;
     if (discharging && slope >= 0) continue;
     if (recovering && slope <= 0) continue;
 
-    const hours = discharging ? (voltage - target) / -slope : (target - voltage) / slope;
+    const hours = discharging ? (practicalSoc - targetSoc) / -slope : (targetSoc - practicalSoc) / slope;
     if (!Number.isFinite(hours) || hours < 0) continue;
     return {
-      label: `~${formatDuration(hours)} to ${targetId} (${num(target, 1)}V)`,
+      label: `~${formatDuration(hours)} to ${targetId} (${Math.round(targetSoc)}%)`,
       targetId,
       targetVoltage: target,
-      slopeVPerHour: slope,
+      targetSoc,
+      slopePctPerHour: slope,
     };
   }
 

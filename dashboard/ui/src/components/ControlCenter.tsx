@@ -12,9 +12,9 @@ import {
   Target,
   X,
 } from "lucide-react";
-import type { AutomationStatus, ControlEntry, ControlEvent } from "../api";
+import type { AutomationStatus, ControlEntry, ControlEvent, ThresholdEntry } from "../api";
 import { useAutomation, useControlLog, useControlMutations, useControls } from "../hooks";
-import { fullTime, num, relativeAge } from "../format";
+import { fullTime, num, relativeAge, watts } from "../format";
 
 type FeedbackTone = "ok" | "warn" | "bad";
 interface Feedback {
@@ -41,7 +41,7 @@ function draftValue(control: ControlEntry, drafts: Record<string, string>) {
 }
 
 const TARGET_BASE_SOC = 25;
-const TARGET_RAMP_PCT_PER_HOUR = 8;
+const SOLAR_START_MINUTES = 6 * 60 + 30;
 
 function minutesFromTime(value: string): number | null {
   const match = value.match(/^(\d{2}):(\d{2})$/);
@@ -63,18 +63,13 @@ function targetWindow(targetSoc: string, targetTime: string): string {
   const soc = Number(targetSoc);
   const targetMinutes = minutesFromTime(targetTime);
   if (!Number.isFinite(soc) || targetMinutes == null) return "when enabled";
-  const rampMinutes = Math.max(0, ((soc - TARGET_BASE_SOC) / TARGET_RAMP_PCT_PER_HOUR) * 60);
-  return `${timeFromMinutes(targetMinutes - rampMinutes)}-${targetTime}`;
+  if (soc <= TARGET_BASE_SOC || targetMinutes <= SOLAR_START_MINUTES) return `until ${targetTime}`;
+  return `${timeFromMinutes(SOLAR_START_MINUTES)}-${targetTime}`;
 }
 
 function automationExplanation(status: AutomationStatus | undefined, draftEnabled: boolean, targetSoc: string, targetTime: string) {
   const savedEnabled = Boolean(status?.enabled);
-  const practicalNow = status?.practical_soc == null ? null : Math.round(status.practical_soc);
-  const desiredNow =
-    status?.desired_practical_soc_now == null ? null : Math.round(status.desired_practical_soc_now);
-  const targetVoltage = status?.target_voltage == null ? null : num(status.target_voltage, 1);
   const targetLabel = `${targetSoc || "—"}% by ${targetTime || "—"}`;
-  const windowLabel = targetWindow(targetSoc, targetTime);
   const draftFact =
     savedEnabled === draftEnabled
       ? `Saved mode: ${savedEnabled ? "ON" : "OFF"}`
@@ -86,12 +81,7 @@ function automationExplanation(status: AutomationStatus | undefined, draftEnable
     return {
       title: "Paused: no automatic writes",
       body:
-        "The saved automation state is OFF, so the backend is not trying to reach the target. If automation previously raised A6 and still owns that override, it restores the fallback A6 once.",
-      facts: [
-        draftFact,
-        "Enable and save to start target tracking",
-        `When enabled, it watches the target path during ${windowLabel}`,
-      ],
+        `Automation is not trying to reach a target. If it previously owned a raised band, it restores the fallback band once. ${draftFact}.`,
     };
   }
 
@@ -100,30 +90,23 @@ function automationExplanation(status: AutomationStatus | undefined, draftEnable
     return {
       title: "Preserving battery to catch up",
       body:
-        "The controller is inside the target path and practical SOC is behind. It may raise A6 so PLN carries the load while PV charges the battery, then restore the fallback A6 after the target is reached or time passes.",
-      facts: [
-        `Target: ${targetLabel}`,
-        `Control window: ${windowLabel}`,
-        "Evaluation cadence: about every 5 min; writes still obey cooldown and daily cap",
-        practicalNow == null ? "Current practical SOC: unknown" : `Current practical SOC: ${practicalNow}%`,
-        desiredNow == null ? "Expected-by-now SOC: unknown" : `Expected-by-now SOC: ${desiredNow}%`,
-        targetVoltage == null ? "Target voltage: unknown" : `Target voltage: ${targetVoltage}V pack`,
-      ],
+        "Practical SOC is behind the solar-weighted path. Automation keeps the load on PLN and holds the protection band so the battery does not drain further before the target time.",
+    };
+  }
+
+  if (decision.includes("holding override") || decision.includes("holding protection band")) {
+    return {
+      title: "Target reached: holding until target time",
+      body:
+        "The target is currently satisfied. Automation keeps the protection band active until the target time so the inverter does not drain the battery early.",
     };
   }
 
   if (decision.includes("tracking")) {
     return {
-      title: "Tracking: waiting before changing A6",
+      title: "Tracking: waiting before changing thresholds",
       body:
-        "The target is enabled. The backend checks during the control window, but it only writes A6 when practical SOC falls far enough behind the expected path.",
-      facts: [
-        `Target: ${targetLabel}`,
-        `Control window: ${windowLabel}`,
-        "Evaluation cadence: about every 5 min; minimum automation write spacing is 90 min",
-        practicalNow == null ? "Current practical SOC: unknown" : `Current practical SOC: ${practicalNow}%`,
-        desiredNow == null ? "Expected-by-now SOC: unknown" : `Expected-by-now SOC: ${desiredNow}%`,
-      ],
+        "The target is enabled. The backend follows a solar-weighted path that expects most progress around midday, and only writes the A6/A7 band when practical SOC falls far enough behind or an active band needs holding.",
     };
   }
 
@@ -131,35 +114,22 @@ function automationExplanation(status: AutomationStatus | undefined, draftEnable
     return {
       title: "Write blocked by safety guardrails",
       body:
-        "The controller wanted to act, but a cooldown, daily write cap, or validation rule prevented another write. This protects inverter non-volatile memory and avoids chatter.",
-      facts: [
-        `Control window: ${windowLabel}`,
-        status?.reason ?? "Waiting for the next safe opportunity.",
-      ],
+        `The controller wanted to act, but a 15-minute batch cooldown or validation rule prevented another write. ${status?.reason ?? "Waiting for the next safe opportunity."}`,
     };
   }
 
   if (decision.includes("target reached") || decision.includes("baseline")) {
     return {
-      title: "Target satisfied or baseline active",
+      title: "Baseline active",
       body:
-        "The controller is not trying to preserve more battery right now. If it had raised A6, it is restoring or has restored the baseline profile.",
-      facts: [
-        `Target: ${targetLabel}`,
-        `Control window: ${windowLabel}`,
-        practicalNow == null ? "Current practical SOC: unknown" : `Current practical SOC: ${practicalNow}%`,
-      ],
+        `Automation is not preserving extra battery right now for ${targetLabel}. If it previously raised A6/A7, it is restoring or has restored the fallback band.`,
     };
   }
 
   return {
     title: "Waiting for enough signal",
     body:
-      "The controller needs fresh telemetry and control values before it can decide whether to wait, preserve battery, or restore baseline.",
-    facts: [
-      `Control window: ${windowLabel}`,
-      status?.reason ?? "No automation decision has been recorded yet.",
-    ],
+      "The controller needs fresh telemetry and control values before it can decide whether to wait, preserve the A6/A7 band, or restore baseline.",
   };
 }
 
@@ -180,7 +150,11 @@ const eventToneClass: Record<string, string> = {
   sent: "border-l-solar",
 };
 
-export default function ControlCenter() {
+interface ControlCenterProps {
+  voltageThresholds?: ThresholdEntry[];
+}
+
+export default function ControlCenter({ voltageThresholds = [] }: ControlCenterProps) {
   const controls = useControls();
   const log = useControlLog();
   const automation = useAutomation();
@@ -191,6 +165,7 @@ export default function ControlCenter() {
   const [targetSoc, setTargetSoc] = useState("95");
   const [targetTime, setTargetTime] = useState("17:15");
   const [baselineA6, setBaselineA6] = useState("12.4");
+  const [baselineA7, setBaselineA7] = useState("11.7");
   // Tracks unsaved edits so a background refetch (every 30s) never clobbers them.
   const [formDirty, setFormDirty] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -216,6 +191,7 @@ export default function ControlCenter() {
     setTargetSoc(String(state.target_practical_soc));
     setTargetTime(state.target_time);
     setBaselineA6(String(state.baseline_a6));
+    setBaselineA7(String(state.baseline_a7));
   }, [automation.data?.automation.state, formDirty]);
 
   const grouped = useMemo(() => {
@@ -228,6 +204,14 @@ export default function ControlCenter() {
     return { battery, other };
   }, [controls.data]);
 
+  const controlLabelColors = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const threshold of voltageThresholds) {
+      map.set(threshold.field_id, threshold.color);
+    }
+    return map;
+  }, [voltageThresholds]);
+
   const status = automation.data?.automation;
   const savedEnabled = Boolean(status?.enabled);
   const explain = automationExplanation(status, enabled, targetSoc, targetTime);
@@ -238,6 +222,21 @@ export default function ControlCenter() {
       : status?.next_check_at == null
         ? "waiting"
         : fullTime(status.next_check_at * 1000);
+  const targetBandLabel =
+    status?.target_a6 == null || status.target_a7 == null
+      ? "—"
+      : `A6 ${num(status.target_a6, 1)} / A7 ${num(status.target_a7, 1)}`;
+  const targetSummary = `${targetSoc || "—"}% by ${targetTime || "—"}`;
+  const desiredSummary =
+    status?.desired_practical_soc_now == null ? "—" : `${Math.round(status.desired_practical_soc_now)}%`;
+  const practicalSummary = status?.practical_soc == null ? "—" : `${Math.round(status.practical_soc)}%`;
+  const socGap =
+    status?.desired_practical_soc_now == null || status.practical_soc == null
+      ? null
+      : Math.max(0, Math.round(status.desired_practical_soc_now - status.practical_soc));
+  const pv = watts(status?.latest?.pv_power);
+  const load = watts(status?.latest?.load_power == null ? null : status.latest.load_power * 1000);
+  const powerSummary = `PV ${pv.value}${pv.unit ? ` ${pv.unit}` : ""} / load ${load.value}${load.unit ? ` ${load.unit}` : ""}`;
   const busy =
     mutations.readAll.isPending ||
     mutations.write.isPending ||
@@ -296,7 +295,8 @@ export default function ControlCenter() {
 
   function saveAutomation() {
     const socValue = Number(targetSoc);
-    const baselineValue = Number(baselineA6);
+    const baselineA6Value = Number(baselineA6);
+    const baselineA7Value = Number(baselineA7);
     if (!Number.isFinite(socValue) || socValue < 0 || socValue > 100) {
       setFeedback({ tone: "bad", text: "Target practical SOC must be between 0 and 100." });
       return;
@@ -305,8 +305,16 @@ export default function ControlCenter() {
       setFeedback({ tone: "bad", text: "Target time must be a valid HH:MM value." });
       return;
     }
-    if (!Number.isFinite(baselineValue)) {
+    if (!Number.isFinite(baselineA6Value)) {
       setFeedback({ tone: "bad", text: "Disabled fallback A6 must be a number." });
+      return;
+    }
+    if (!Number.isFinite(baselineA7Value)) {
+      setFeedback({ tone: "bad", text: "Disabled fallback A7 must be a number." });
+      return;
+    }
+    if (baselineA6Value <= baselineA7Value) {
+      setFeedback({ tone: "bad", text: "Disabled fallback band must satisfy A6 > A7." });
       return;
     }
     mutations.updateAutomation.mutate(
@@ -314,7 +322,8 @@ export default function ControlCenter() {
         enabled,
         target_practical_soc: socValue,
         target_time: targetTime,
-        baseline_a6: baselineValue,
+        baseline_a6: baselineA6Value,
+        baseline_a7: baselineA7Value,
       },
       {
         onSuccess: () => {
@@ -382,25 +391,18 @@ export default function ControlCenter() {
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <Target size={14} strokeWidth={1.8} /> Practical SOC target
               </div>
-              <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-faint">
-                Uses practical SOC mapped to pack voltage. Disabled mode restores baseline A6 once only
+              <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
+                Uses practical SOC mapped to pack voltage. Disabled mode restores the baseline A6/A7 band once only
                 when automation owns an override.
               </p>
             </div>
             <div
-              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 font-mono text-xs tracking-wide ${
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 font-mono text-xs tracking-wide ${
                 savedEnabled
-                  ? "border-charge/50 bg-charge/10 text-charge"
-                  : "border-line bg-panel-hi text-faint"
+                  ? "bg-charge/10 text-charge"
+                  : "bg-panel-hi text-faint"
               }`}
             >
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  savedEnabled
-                    ? "bg-charge ring-4 ring-charge/20"
-                    : "bg-faint"
-                }`}
-              />
               {savedEnabled ? "Active" : "Paused"}
             </div>
           </div>
@@ -422,10 +424,7 @@ export default function ControlCenter() {
                 <span className="control-switch-thumb" />
               </span>
               <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm font-medium text-text">Enable automatic A6 changes</span>
-                <small className="text-xs leading-tight text-faint">
-                  Automation writes A6 to track the practical-SOC target
-                </small>
+                <span className="text-sm font-medium text-text">Enable automatic A6/A7 band changes</span>
               </span>
             </label>
             <div className="shrink-0 text-right">
@@ -439,89 +438,121 @@ export default function ControlCenter() {
             </div>
           </div>
 
-          <div className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <div className="flex flex-col gap-2.5">
-              <div className="grid grid-cols-2 gap-2.5">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wider text-faint">Target SOC</span>
-                  <input
-                    className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={targetSoc}
-                    onChange={(event) => {
-                      setTargetSoc(event.target.value);
-                      setFormDirty(true);
-                    }}
-                  />
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wider text-faint">Target time</span>
-                  <input
-                    className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
-                    type="time"
-                    value={targetTime}
-                    onChange={(event) => {
-                      setTargetTime(event.target.value);
-                      setFormDirty(true);
-                    }}
-                  />
-                </label>
-              </div>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-faint">Fallback A6 voltage</span>
-                <input
-                  className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
-                  type="number"
-                  min={12.4}
-                  max={13.5}
-                  step={0.1}
-                  value={baselineA6}
-                  onChange={(event) => {
-                    setBaselineA6(event.target.value);
-                    setFormDirty(true);
-                  }}
-                />
-              </label>
-            </div>
+          <div className="mt-3.5 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-faint">Target SOC</span>
+              <input
+                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={targetSoc}
+                onChange={(event) => {
+                  setTargetSoc(event.target.value);
+                  setFormDirty(true);
+                }}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-faint">Target time</span>
+              <input
+                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                type="time"
+                value={targetTime}
+                onChange={(event) => {
+                  setTargetTime(event.target.value);
+                  setFormDirty(true);
+                }}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-faint">Fallback A6 voltage</span>
+              <input
+                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                type="number"
+                min={12.4}
+                max={13.5}
+                step={0.1}
+                value={baselineA6}
+                onChange={(event) => {
+                  setBaselineA6(event.target.value);
+                  setFormDirty(true);
+                }}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-faint">Fallback A7 voltage</span>
+              <input
+                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                type="number"
+                min={11.2}
+                max={13.5}
+                step={0.1}
+                value={baselineA7}
+                onChange={(event) => {
+                  setBaselineA7(event.target.value);
+                  setFormDirty(true);
+                }}
+              />
+            </label>
+          </div>
 
-            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line self-end">
-              <div className="bg-panel-hi px-3 py-2">
-                <span className="block text-[10px] uppercase tracking-wider text-faint">Current state</span>
-                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                  {status?.decision ?? "unknown"}
+          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line lg:grid-cols-7">
+            <div className="col-span-2 bg-panel-hi px-3 py-2 lg:col-span-1">
+              <span className="block text-[10px] uppercase tracking-wider text-faint">Current action</span>
+              <span className="mt-0.5 block text-xs font-semibold text-text">{explain.title}</span>
+            </div>
+            <div className="bg-panel-hi px-3 py-2">
+              <span className="block text-[10px] uppercase tracking-wider text-faint">Target</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{targetSummary}</span>
+            </div>
+            <div className="bg-panel-hi px-3 py-2">
+              <span className="block text-[10px] uppercase tracking-wider text-faint">Practical / expected</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                {practicalSummary} / {desiredSummary}
+                {socGap != null && socGap > 0 && (
+                  <span className="ml-1 text-[10px] font-normal text-faint">(-{socGap})</span>
+                )}
+              </span>
+            </div>
+            <div className="bg-panel-hi px-3 py-2">
+              <span className="block text-[10px] uppercase tracking-wider text-faint">Power now</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{powerSummary}</span>
+            </div>
+            <div className="bg-panel-hi px-3 py-2">
+              <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-faint">
+                Protection band
+                <span className="group relative inline-flex">
+                  <button
+                    type="button"
+                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-line text-faint transition-colors hover:border-line-hi hover:text-text focus-visible:border-line-hi focus-visible:text-text focus-visible:outline-none"
+                    aria-label="Protection band limits info"
+                  >
+                    <Info size={9} strokeWidth={2} />
+                  </button>
+                  <span className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1.5 w-44 -translate-x-1/2 rounded-card border border-line bg-panel px-2 py-1.5 text-[10px] normal-case tracking-normal text-faint opacity-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)] transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                    {status?.target_band_capped ? "Capped by inverter limits" : "Within inverter limits"}
+                  </span>
                 </span>
-              </div>
-              <div className="bg-panel-hi px-3 py-2">
-                <span className="block text-[10px] uppercase tracking-wider text-faint">Practical SOC</span>
-                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                  {status?.practical_soc == null ? "—" : `${Math.round(status.practical_soc)}%`}
-                </span>
-              </div>
-              <div className="bg-panel-hi px-3 py-2">
-                <span className="block text-[10px] uppercase tracking-wider text-faint">Control window</span>
-                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                  {savedEnabled ? windowLabel : "paused"}
-                </span>
-              </div>
-              <div className="bg-panel-hi px-3 py-2">
-                <span className="block text-[10px] uppercase tracking-wider text-faint">Next evaluation</span>
-                <span className="mt-0.5 block font-mono text-xs font-medium text-text">{nextEvaluation}</span>
-              </div>
+              </span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                {targetBandLabel}
+              </span>
+            </div>
+            <div className="bg-panel-hi px-3 py-2">
+              <span className="block text-[10px] uppercase tracking-wider text-faint">Window</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{savedEnabled ? windowLabel : "paused"}</span>
+            </div>
+            <div className="bg-panel-hi px-3 py-2">
+              <span className="block text-[10px] uppercase tracking-wider text-faint">Next check</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{nextEvaluation}</span>
             </div>
           </div>
 
           <div className="mt-2.5 rounded-card border border-line border-l-2 border-l-battery bg-panel-hi px-3 py-2.5">
-            <span className="block text-[10px] uppercase tracking-wider text-faint">Status</span>
-            <span className="mt-0.5 block text-xs font-semibold text-text">{explain.title}</span>
+            <span className="block text-[10px] uppercase tracking-wider text-faint">Why this action</span>
             <p className="mt-1.5 text-xs leading-relaxed text-dim">{explain.body}</p>
-            <ul className="mt-2 list-disc pl-4 text-xs leading-relaxed text-faint">
-              {explain.facts.map((fact) => (
-                <li key={fact}>{fact}</li>
-              ))}
-            </ul>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -552,7 +583,7 @@ export default function ControlCenter() {
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <RefreshCw size={14} strokeWidth={1.8} /> Device controls
               </div>
-              <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-faint">
+              <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
                 Values show read freshness. Writes are read-before-write and verified after send.
               </p>
             </div>
@@ -586,6 +617,7 @@ export default function ControlCenter() {
                 busy={busy}
                 writingId={writingId}
                 readingId={readingId}
+                controlLabelColors={controlLabelColors}
               />
               <ControlGroup
                 title="Other setting"
@@ -597,6 +629,7 @@ export default function ControlCenter() {
                 busy={busy}
                 writingId={writingId}
                 readingId={readingId}
+                controlLabelColors={controlLabelColors}
               />
             </>
           )}
@@ -608,7 +641,7 @@ export default function ControlCenter() {
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <ListChecks size={14} strokeWidth={1.8} /> Action timeline
               </div>
-              <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-faint">
+              <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
                 Every read, skip, write, restore, and verify includes a reason.
               </p>
             </div>
@@ -646,6 +679,7 @@ interface ControlGroupProps {
   busy: boolean;
   writingId: string | null;
   readingId: string | null;
+  controlLabelColors: ReadonlyMap<string, string>;
 }
 
 function ControlGroup({
@@ -658,6 +692,7 @@ function ControlGroup({
   busy,
   writingId,
   readingId,
+  controlLabelColors,
 }: ControlGroupProps) {
   return (
     <div className="mt-3.5">
@@ -673,65 +708,92 @@ function ControlGroup({
             const changed = value !== (control.raw_value ?? "");
             const isWriting = writingId === control.id;
             const isReading = readingId === control.id;
+            const labelColor = controlLabelColors.get(control.id);
             return (
               <div
-                className="grid grid-cols-1 gap-x-3 gap-y-2 rounded-card border border-line bg-panel-hi px-3 py-2 lg:grid-cols-12"
+                className="grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-card border border-line bg-panel-hi px-3 py-2 lg:grid-cols-12"
                 key={control.id}
               >
-                <div className="flex min-w-0 flex-col gap-0.5 lg:col-span-4">
-                  <span className="text-xs font-medium leading-snug text-text">{control.label}</span>
-                  <span className="font-mono text-[10px] text-faint">{control.id}</span>
-                  {control.hint && <small className="text-[10px] leading-tight text-faint">{control.hint}</small>}
-                  {!control.writable && <small className="text-[10px] uppercase tracking-wide text-faint">read-only</small>}
+                <div className="min-w-0 lg:col-span-3">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className={`text-xs font-medium leading-snug ${labelColor ? "" : "text-text"}`}
+                      style={labelColor ? { color: labelColor } : undefined}
+                    >
+                      {control.label}
+                    </span>
+                    {!control.writable && (
+                      <span className="shrink-0 text-xs font-medium leading-snug text-faint">read-only</span>
+                    )}
+                    {control.hint && (
+                      <span className="group relative inline-flex shrink-0">
+                        <button
+                          type="button"
+                          className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-line text-[10px] font-semibold text-faint transition-colors hover:border-line-hi hover:text-text focus-visible:border-line-hi focus-visible:text-text focus-visible:outline-none"
+                          aria-label={`${control.label} description`}
+                        >
+                          i
+                        </button>
+                        <span className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1.5 w-56 -translate-x-1/2 rounded-card border border-line bg-panel px-2 py-1.5 text-[10px] leading-tight text-faint opacity-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)] transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                          {control.hint}
+                        </span>
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div
-                  className="inline-flex items-center gap-1 text-[10px] text-faint lg:col-span-2 lg:self-center"
-                >
+                <div className="min-w-0 font-mono text-[10px] text-faint lg:col-span-3" title={control.id}>
+                  <span className="block truncate">{control.id}</span>
+                </div>
+                <div className="inline-flex items-center gap-1 text-[10px] text-faint lg:col-span-1 lg:justify-self-end lg:pr-1">
                   <Clock3 size={10} /> {ageLabel(control.read_at)}
                 </div>
-                <div className="lg:col-span-3 lg:self-center">
-                  {control.type === "enum" && control.options?.length ? (
-                    <select
-                      className="w-full cursor-pointer appearance-none rounded-card border border-line bg-panel py-1.5 pl-2.5 pr-8 text-sm text-text outline-none focus:border-line-hi disabled:cursor-not-allowed disabled:opacity-50"
-                      style={{
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%235c636c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M2 4l4 4 4-4'/%3E%3C/svg%3E")`,
-                        backgroundRepeat: "no-repeat",
-                        backgroundPosition: "right 0.6rem center",
-                      }}
-                      aria-label={`${control.label} value`}
-                      value={value}
-                      onChange={(event) => setDraft(control.id, event.target.value)}
-                      disabled={!control.writable}
-                    >
-                      <option value="">Select…</option>
-                      {control.options.map((option) => (
-                        <option value={option.value} key={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="relative">
-                      <input
-                        aria-label={`${control.label} value`}
-                        className={`h-8 w-full rounded-card border border-line bg-panel px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi${control.unit ? " pr-8" : ""}`}
-                        type={control.type === "number" ? "number" : "text"}
-                        min={control.min}
-                        max={control.max}
-                        step={control.step}
-                        value={value}
-                        onChange={(event) => setDraft(control.id, event.target.value)}
-                        disabled={!control.writable}
-                      />
-                      {control.unit && (
-                        <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center font-mono text-[10px] text-faint">
-                          {control.unit}
-                        </span>
+                <div className="lg:col-span-3">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      {control.type === "enum" && control.options?.length ? (
+                        <select
+                          className="h-7 w-full cursor-pointer appearance-none rounded-card border border-line bg-panel py-1 pl-2 pr-7 text-xs text-text outline-none focus:border-line-hi disabled:cursor-not-allowed disabled:opacity-50"
+                          style={{
+                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%235c636c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M2 4l4 4 4-4'/%3E%3C/svg%3E")`,
+                            backgroundRepeat: "no-repeat",
+                            backgroundPosition: "right 0.5rem center",
+                          }}
+                          aria-label={`${control.label} value`}
+                          value={value}
+                          onChange={(event) => setDraft(control.id, event.target.value)}
+                          disabled={!control.writable}
+                        >
+                          <option value="">Select…</option>
+                          {control.options.map((option) => (
+                            <option value={option.value} key={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="relative">
+                          <input
+                            aria-label={`${control.label} value`}
+                            className={`h-7 w-full rounded-card border border-line bg-panel px-2 font-mono text-xs text-text outline-none focus:border-line-hi${control.unit ? " pr-7" : ""}`}
+                            type={control.type === "number" ? "number" : "text"}
+                            min={control.min}
+                            max={control.max}
+                            step={control.step}
+                            value={value}
+                            onChange={(event) => setDraft(control.id, event.target.value)}
+                            disabled={!control.writable}
+                          />
+                          {control.unit && (
+                            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[10px] text-faint">
+                              {control.unit}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
                 </div>
-                <div className="flex items-center justify-end gap-1.5 lg:col-span-3 lg:self-center">
+                <div className="flex items-center justify-end gap-1.5 lg:col-span-2">
                   <button
                     className="inline-flex min-h-7 items-center justify-center gap-1 rounded-card border border-line bg-panel-hi px-2.5 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
                     onClick={() => readOne(control)}

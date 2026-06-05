@@ -1,6 +1,7 @@
 import { DessmonitorClient } from "./dessClient";
 import { TelemetryStore, type ControlValueRecord } from "./store";
 import {
+  A7_FIELD_ID,
   A6_FIELD_ID,
   A6_TOLERANCE_SINGLE_V,
   AUTOMATION_DAILY_WRITE_CAP,
@@ -17,7 +18,7 @@ const VOLTAGE_ORDER_FIELDS = [
   "bat_low_voltage_protection_value",
   "bat_low_voltage_recovery_value",
   A6_FIELD_ID,
-  "bat_mains_power_supply_value",
+  A7_FIELD_ID,
 ] as const;
 
 interface ControlResponse extends JsonRecord {
@@ -313,7 +314,7 @@ export class ControlService {
     const a4 = values.get("bat_low_voltage_protection_value");
     const a5 = values.get("bat_low_voltage_recovery_value");
     const a6 = values.get(A6_FIELD_ID);
-    const a7 = values.get("bat_mains_power_supply_value");
+    const a7 = values.get(A7_FIELD_ID);
     if (a4 == null || a5 == null || a6 == null || a7 == null) {
       throw new Error("Cannot validate voltage ordering because one A4/A5/A6/A7 value is missing");
     }

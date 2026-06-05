@@ -1,5 +1,5 @@
 import type { Reading, Summary, ThresholdEntry } from "../api";
-import { estimateVoltageEta, practicalBattery } from "../batteryModel";
+import { estimatePracticalEta, practicalBattery } from "../batteryModel";
 import { deriveFlows, FLOW_MIN_KW } from "../energy";
 import { watts, powerKw, num } from "../format";
 import { C, statusColor, statusLabel } from "../theme";
@@ -50,15 +50,15 @@ export default function EnergyFlow({
   const f = deriveFlows(latest);
   const switchT = socThresholds.find((t) => t.id === "soc_to_mains");
   const practical = practicalBattery(latest, voltageThresholds);
-  const eta = estimateVoltageEta(history, latest, voltageThresholds);
+  const eta = estimatePracticalEta(history, latest, voltageThresholds);
 
   const socRange =
     summary?.soc_min != null && summary?.soc_max != null
       ? `${Math.round(summary.soc_min)}-${Math.round(summary.soc_max)}%`
       : null;
 
-  // Compact ETA: drop the leading "~" and fold "(24.8V)" into "/24.8V".
-  const etaCompact = eta ? eta.label.replace(/^~/, "").replace(/\s*\(([\d.]+)V\)$/, "/$1V") : null;
+  // Compact ETA: drop the leading "~"; target is expressed on the practical SOC guide.
+  const etaCompact = eta ? eta.label.replace(/^~/, "") : null;
   const batteryCaps = etaCompact
     ? [`ETA ${etaCompact}`]
     : switchT

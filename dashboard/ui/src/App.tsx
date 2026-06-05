@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Header from "./components/Header";
 import EnergyFlow from "./components/EnergyFlow";
 import Charts from "./components/Charts";
 import DailyEnergy from "./components/DailyEnergy";
 import ControlCenter from "./components/ControlCenter";
+import type { ControlEntry, ThresholdEntry } from "./api";
 import {
   useConfig,
   useSummary,
@@ -12,6 +13,17 @@ import {
   useHistory,
   useVoltage,
 } from "./hooks";
+
+function withLiveControlValues(thresholds: ThresholdEntry[], controls: ControlEntry[] | undefined): ThresholdEntry[] {
+  if (!controls?.length) return thresholds;
+  const byField = new Map(controls.map((control) => [control.id, control]));
+  return thresholds.map((threshold) => {
+    const control = byField.get(threshold.field_id);
+    const liveValue = control?.pack_value ?? null;
+    if (liveValue == null || !Number.isFinite(liveValue)) return threshold;
+    return { ...threshold, value: liveValue, from_device: true };
+  });
+}
 
 export default function App() {
   const [hours, setHours] = useState(6);
@@ -30,7 +42,10 @@ export default function App() {
   const online = !summary.isError;
 
   const socThresholds = thresholds.data?.thresholds.battery_soc ?? [];
-  const voltageThresholds = thresholds.data?.thresholds.battery_voltage ?? [];
+  const voltageThresholds = useMemo(
+    () => withLiveControlValues(thresholds.data?.thresholds.battery_voltage ?? [], controls.data?.controls),
+    [thresholds.data?.thresholds.battery_voltage, controls.data?.controls],
+  );
 
   // Rated output ("Power Value Setting" control, in W) used as the load gauge max.
   const powerValueControl = controls.data?.controls.find((c) => c.id === "power_value");
@@ -77,7 +92,7 @@ export default function App() {
 
           <DailyEnergy />
 
-          <ControlCenter />
+          <ControlCenter voltageThresholds={voltageThresholds} />
         </>
       )}
     </div>

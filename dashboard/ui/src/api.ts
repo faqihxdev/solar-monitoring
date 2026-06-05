@@ -202,7 +202,10 @@ export interface AutomationState {
   target_practical_soc: number;
   target_time: string;
   baseline_a6: number;
+  baseline_a7: number;
   active_override: number;
+  override_a6: number | null;
+  override_a7: number | null;
   override_value: number | null;
   next_check_at: number | null;
   last_decision: string | null;
@@ -216,6 +219,9 @@ export interface AutomationStatus {
   decision: string;
   reason: string;
   target_voltage: number | null;
+  target_a6: number | null;
+  target_a7: number | null;
+  target_band_capped: boolean;
   desired_practical_soc_now: number | null;
   latest: Reading | null;
   practical_soc: number | null;
@@ -233,6 +239,7 @@ export interface AutomationUpdateRequest {
   target_practical_soc?: number;
   target_time?: string;
   baseline_a6?: number;
+  baseline_a7?: number;
 }
 
 export interface ControlWriteResponse {

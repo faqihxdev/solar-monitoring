@@ -21,13 +21,17 @@ export interface ControlField {
 }
 
 export const A6_FIELD_ID = "bat_power_supply_value";
+export const A7_FIELD_ID = "bat_mains_power_supply_value";
 export const BASELINE_A6_SINGLE_V = 12.4;
+export const BASELINE_A7_SINGLE_V = 11.7;
 export const A6_MIN_SINGLE_V = 12.4;
 export const A6_MAX_SINGLE_V = 13.5;
+export const A7_MIN_SINGLE_V = 11.2;
+export const A7_MAX_SINGLE_V = A6_MAX_SINGLE_V;
 export const A6_TOLERANCE_SINGLE_V = 0.05;
-export const AUTOMATION_MIN_WRITE_INTERVAL_SECONDS = 90 * 60;
-export const AUTOMATION_DAILY_WRITE_CAP = 4;
-export const AUTOMATION_HARD_DAILY_WRITE_CAP = 8;
+export const AUTOMATION_MIN_WRITE_INTERVAL_SECONDS = 15 * 60;
+export const AUTOMATION_DAILY_WRITE_CAP = 96;
+export const AUTOMATION_HARD_DAILY_WRITE_CAP = 192;
 
 export const CONTROL_FIELDS: ControlField[] = [
   {
@@ -82,17 +86,17 @@ export const CONTROL_FIELDS: ControlField[] = [
     step: 0.1,
   },
   {
-    id: "bat_mains_power_supply_value",
+    id: A7_FIELD_ID,
     label: "Switch to grid [A7]",
     group: "battery",
     unit: "V",
     scale: 2,
     writable: true,
     type: "number",
-    min: 11.2,
-    max: 13,
+    min: A7_MIN_SINGLE_V,
+    max: A7_MAX_SINGLE_V,
     step: 0.1,
-    hint: "Battery-to-PLN threshold. Automation does not change this.",
+    hint: "Battery-to-PLN threshold. Must stay below A6; automation does not change this.",
   },
   {
     id: "bat_charging_current",

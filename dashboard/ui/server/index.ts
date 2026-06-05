@@ -284,6 +284,25 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown): v
   res.end(JSON.stringify(payload));
 }
 
+function errorStatus(message: string): number {
+  if (
+    message === "Invalid JSON request body" ||
+    message === "Request body too large" ||
+    message === "Control value is required" ||
+    message.startsWith("Unknown control field:") ||
+    message.includes("requires a numeric value") ||
+    message.includes("must be >=") ||
+    message.includes("must be <=") ||
+    message.includes("does not allow value") ||
+    message.includes("is read-only") ||
+    message.startsWith("Voltage ordering must") ||
+    message.startsWith("Cannot validate voltage ordering")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
 function readBody(req: http.IncomingMessage): Promise<JsonRecord> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -329,7 +348,8 @@ const server = http.createServer((req, res) => {
       if (payload == null) sendJson(res, 404, { detail: "Not Found" });
       else sendJson(res, 200, payload);
     } catch (exc) {
-      sendJson(res, 500, { error: String(exc instanceof Error ? exc.message : exc) });
+      const message = String(exc instanceof Error ? exc.message : exc);
+      sendJson(res, errorStatus(message), { error: message });
     }
   })();
 });
@@ -339,7 +359,7 @@ server.listen(config.apiPort, "127.0.0.1", () => {
 });
 
 let automationRunning = false;
-const automationIntervalMs = Number(process.env.AUTOMATION_CHECK_INTERVAL_SECONDS ?? "300") * 1000;
+const automationIntervalMs = Number(process.env.AUTOMATION_CHECK_INTERVAL_SECONDS ?? "900") * 1000;
 setInterval(() => {
   if (automationRunning) return;
   automationRunning = true;

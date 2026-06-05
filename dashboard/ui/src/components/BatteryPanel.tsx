@@ -1,6 +1,6 @@
 import { Battery } from "lucide-react";
 import type { Reading, Summary, ThresholdEntry } from "../api";
-import { estimateVoltageEta, practicalBattery } from "../batteryModel";
+import { estimatePracticalEta, practicalBattery } from "../batteryModel";
 import { num } from "../format";
 import { C, statusColor, statusLabel } from "../theme";
 
@@ -44,7 +44,7 @@ export default function BatteryPanel({
   const practical = practicalBattery(latest, voltageThresholds);
 
   const switchT = socThresholds.find((t) => t.id === "soc_to_mains");
-  const eta = estimateVoltageEta(history, latest, voltageThresholds);
+  const eta = estimatePracticalEta(history, latest, voltageThresholds);
   const gaugePct = practical.practicalSocPct;
 
   const valueArc =
@@ -110,7 +110,7 @@ export default function BatteryPanel({
           </div>
         </div>
         <div className="bg-panel px-3 py-2.5">
-          <div className="text-xs uppercase tracking-widest text-faint">{eta ? "Voltage ETA" : "Reported SOC"}</div>
+          <div className="text-xs uppercase tracking-widest text-faint">{eta ? "Practical ETA" : "Reported SOC"}</div>
           <div className="mt-1 font-mono text-lg tabular-nums">
             {eta ? (
               <span style={{ fontSize: 15 }}>{eta.label}</span>
