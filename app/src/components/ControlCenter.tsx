@@ -355,14 +355,11 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
 
 
   return (
-    <section className="mt-6 animate-[fadein_0.5s_ease_both]">
-      <div className="mb-3 flex items-baseline justify-between gap-4 border-b border-line pb-2">
+    <section className="mt-8 animate-[fadein_0.5s_ease_both] sm:mt-10">
+      <div className="mb-3 flex items-baseline justify-between gap-4">
         <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
           <SlidersHorizontal size={14} strokeWidth={1.8} /> Control Center
         </h2>
-        <span className="text-xs tracking-wide text-faint">
-          Guarded writes, practical-SOC target, and full action log
-        </span>
       </div>
 
       {feedback && (

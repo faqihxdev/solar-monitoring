@@ -3,7 +3,7 @@ import { estimatePracticalEta, practicalBattery } from "../batteryModel";
 import { deriveFlows, FLOW_MIN_KW } from "../energy";
 import { watts, powerKw, num } from "../format";
 import { C, statusColor, statusLabel } from "../theme";
-import { Battery, Plug, Sun, Workflow, Zap } from "lucide-react";
+import { Battery, Plug, Sun, Zap } from "lucide-react";
 import {
   FlowDiagram,
   RailNode,
@@ -23,14 +23,13 @@ interface Props {
   loadMaxKw: number | null;
 }
 
-// Node boxes in the 1034x300 diagram coordinate space. Solar/Grid stack on the
-// left, Battery in the middle, Load on the right. Box sizes hug their content
-// (the cards fill their box) and gaps are kept even + tight.
+// Node boxes fill the 1034×300 viewBox edge-to-edge so the scaled SVG aligns
+// with the content area (no internal side margins).
 const BOX = {
-  solar: { x: 24, y: 20, w: 250, h: 92 },
-  grid: { x: 24, y: 188, w: 250, h: 92 },
+  solar: { x: 0, y: 20, w: 250, h: 92 },
+  grid: { x: 0, y: 188, w: 250, h: 92 },
   battery: { x: 398, y: 94, w: 244, h: 112 },
-  load: { x: 766, y: 98, w: 244, h: 104 },
+  load: { x: 790, y: 98, w: 244, h: 104 },
 };
 
 /** Compact link number, e.g. "0.42" (W) or "1.2k" (kW), with optional "~". */
@@ -186,31 +185,31 @@ export default function EnergyFlow({
   const links: DiagramLink[] = [
     {
       id: "pv-batt",
-      path: "M 274 66 C 338 66, 352 150, 398 150",
+      path: "M 250 66 C 324 66, 352 150, 398 150",
       active: f.pvToBattery > FLOW_MIN_KW,
       color: C.solar,
       label: f.pvToBattery > FLOW_MIN_KW ? linkLabel(f.pvToBattery) : undefined,
-      at: { x: 339, y: 108 },
+      at: { x: 324, y: 108 },
     },
     {
       id: "grid-batt",
-      path: "M 274 234 C 338 234, 352 150, 398 150",
+      path: "M 250 234 C 324 234, 352 150, 398 150",
       active: f.gridToBattery > FLOW_MIN_KW || f.gridToBatteryReported,
       color: C.grid,
       label: f.gridToBattery > FLOW_MIN_KW ? linkLabel(f.gridToBattery, f.gridInferred) : undefined,
-      at: { x: 339, y: 192 },
+      at: { x: 324, y: 192 },
     },
     {
       id: "batt-load",
-      path: "M 642 150 L 766 150",
+      path: "M 642 150 L 790 150",
       active: f.batteryToLoad > FLOW_MIN_KW || f.batteryToLoadReported,
       color: C.discharge,
       label: f.batteryToLoad > FLOW_MIN_KW ? linkLabel(f.batteryToLoad) : undefined,
-      at: { x: 704, y: 150 },
+      at: { x: 716, y: 150 },
     },
     {
       id: "pv-load",
-      path: "M 274 66 C 470 2, 590 2, 766 150",
+      path: "M 250 66 C 470 2, 610 2, 790 150",
       active: f.pvToLoad > FLOW_MIN_KW,
       color: C.solar,
       label: f.pvToLoad > FLOW_MIN_KW ? linkLabel(f.pvToLoad) : undefined,
@@ -218,7 +217,7 @@ export default function EnergyFlow({
     },
     {
       id: "grid-load",
-      path: "M 274 234 C 470 298, 590 298, 766 150",
+      path: "M 250 234 C 470 298, 610 298, 790 150",
       active: f.gridToLoad > FLOW_MIN_KW,
       color: C.grid,
       label: f.gridToLoad > FLOW_MIN_KW ? linkLabel(f.gridToLoad, f.gridInferred) : undefined,
@@ -227,19 +226,11 @@ export default function EnergyFlow({
   ];
 
   return (
-    <div className="animate-[fadein_0.5s_ease_both] flex flex-col overflow-hidden rounded-card border border-line bg-panel">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-3 pb-1.5 pt-3 sm:px-5 sm:pt-3.5">
-        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
-          <Workflow size={14} strokeWidth={1.8} /> Power flow
-        </span>
-      </div>
-
-      <div className="px-2 pb-2.5 pt-1 sm:px-5 sm:pb-3">
-        <FlowDiagram width={1034} height={300} nodes={nodes} links={links} />
-      </div>
+    <div className="animate-[fadein_0.5s_ease_both]">
+      <FlowDiagram width={1034} height={300} nodes={nodes} links={links} />
 
       {unmeasuredCharge && (
-        <p className="px-3 pb-3 text-xs text-faint sm:px-4">
+        <p className="mt-2 text-xs text-faint">
           Charging path reported by DESSMonitor; charge power is not metered by this protocol.
         </p>
       )}

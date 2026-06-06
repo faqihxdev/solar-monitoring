@@ -13,6 +13,8 @@ import {
   useHistory,
   useVoltage,
 } from "./hooks";
+import type { RangeKey } from "./format";
+import { hoursForRange } from "./format";
 
 function withLiveControlValues(thresholds: ThresholdEntry[], controls: ControlEntry[] | undefined): ThresholdEntry[] {
   if (!controls?.length) return thresholds;
@@ -26,7 +28,8 @@ function withLiveControlValues(thresholds: ThresholdEntry[], controls: ControlEn
 }
 
 export default function App() {
-  const [hours, setHours] = useState(6);
+  const [range, setRange] = useState<RangeKey>("12h");
+  const hours = hoursForRange(range);
 
   const config = useConfig();
   const summary = useSummary();
@@ -82,8 +85,8 @@ export default function App() {
           </div>
 
           <Charts
-            hours={hours}
-            setHours={setHours}
+            range={range}
+            setRange={setRange}
             history={history.data}
             voltage={voltage.data}
             voltageThresholds={voltageThresholds}

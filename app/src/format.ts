@@ -53,6 +53,24 @@ export function todayJkt(): string {
   return new Date().toLocaleDateString("sv", { timeZone: DISPLAY_TIME_ZONE });
 }
 
+export type RangeKey = "6h" | "12h" | "1d" | "3d" | "1w" | "today";
+
+// Jakarta is UTC+7 with no DST — safe to use fixed offset.
+export function jakartaMidnightMs(): number {
+  const dateStr = new Date().toLocaleDateString("sv", { timeZone: DISPLAY_TIME_ZONE });
+  return Date.parse(`${dateStr}T00:00:00+07:00`);
+}
+
+export function hoursForRange(range: RangeKey): number {
+  if (range === "today") {
+    const elapsed = (Date.now() - jakartaMidnightMs()) / (3600 * 1000);
+    // Ceiling to whole hours for cache-key stability; at least 1h so chart isn't empty.
+    return Math.max(1, Math.ceil(elapsed));
+  }
+  const map: Record<string, number> = { "6h": 6, "12h": 12, "1d": 24, "3d": 72, "1w": 168 };
+  return map[range] ?? 6;
+}
+
 export function isOnMains(workingState: string | null | undefined): boolean {
   if (!workingState) return false;
   const s = workingState.toLowerCase();

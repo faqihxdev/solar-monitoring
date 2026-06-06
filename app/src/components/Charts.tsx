@@ -1,4 +1,5 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, Fragment } from "react";
+import { LineChart } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -13,21 +14,25 @@ import {
 import type { HistoryResponse, VoltageResponse, ThresholdEntry, Reading } from "../api";
 import { practicalSocPct, voltageForPracticalSoc } from "../batteryModel";
 import { C, FONT } from "../theme";
-import { clockTime, fullTime, num } from "../format";
+import { clockTime, fullTime, num, jakartaMidnightMs, hoursForRange } from "../format";
+import type { RangeKey } from "../format";
 
 interface Props {
-  hours: number;
-  setHours: (h: number) => void;
+  range: RangeKey;
+  setRange: (r: RangeKey) => void;
   history: HistoryResponse | undefined;
   voltage: VoltageResponse | undefined;
   voltageThresholds: ThresholdEntry[];
   latest: Reading | null;
 }
 
-const RANGES = [
-  { h: 6, label: "6H" },
-  { h: 24, label: "24H" },
-  { h: 168, label: "7D" },
+const RANGES: { key: RangeKey; label: string; title?: string }[] = [
+  { key: "6h", label: "6H" },
+  { key: "12h", label: "12H" },
+  { key: "1d", label: "1D" },
+  { key: "3d", label: "3D" },
+  { key: "1w", label: "1W" },
+  { key: "today", label: "Today", title: "Current day from midnight" },
 ];
 
 const AXIS = {
@@ -300,11 +305,9 @@ const SocChartBody = memo(function SocChartBody({
           type="stepAfter"
           dataKey="soc"
           name="Reported SOC"
-          stroke={C.textDim}
-          strokeOpacity={0.6}
-          strokeWidth={1.3}
-          fill={C.textDim}
-          fillOpacity={0}
+          stroke="rgba(200,204,210,0.2)"
+          strokeWidth={1.2}
+          fill="none"
           dot={false}
           isAnimationActive={false}
           connectNulls
@@ -332,7 +335,7 @@ function CombinedSocChart({
         <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
           <span style={{ color: C.battery }}>{currentPractical} <small>%</small></span>
           <span className="text-sm text-faint">/</span>
-          <span style={{ color: C.textFaint }}>{currentReported} <small>%</small></span>
+          <span style={{ color: C.load, opacity: 0.5 }}>{currentReported} <small>%</small></span>
         </span>
       </div>
       <SocChartBody data={data} domain={domain} danger={{ from: 0, to: 10 }} />
@@ -343,7 +346,7 @@ function CombinedSocChart({
             <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.battery }} /> Practical
           </span>
           <span className="inline-flex items-center gap-1.5 text-faint">
-            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.textFaint }} /> Reported
+            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load, opacity: 0.5 }} /> Reported
           </span>
         </div>
       </div>
@@ -452,11 +455,9 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
           type="monotone"
           dataKey="curveGuideV"
           name="Fixed SOC guide"
-          stroke={C.textDim}
-          strokeOpacity={0.6}
-          strokeWidth={1.3}
-          fill={C.textDim}
-          fillOpacity={0}
+          stroke="rgba(200,204,210,0.2)"
+          strokeWidth={1.2}
+          fill="none"
           dot={false}
           isAnimationActive={false}
           connectNulls
@@ -538,7 +539,7 @@ function PackVoltageChart({
             <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.battery }} /> Voltage
           </span>
           <span className="inline-flex items-center gap-1.5 text-faint">
-            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.textDim }} /> Fixed SOC guide
+            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load, opacity: 0.5 }} /> Fixed SOC guide
           </span>
         </div>
       </div>
@@ -554,7 +555,7 @@ const SolarLoadChartBody = memo(function SolarLoadChartBody({
   domain: [number, number];
 }) {
   return (
-    <ResponsiveContainer width="100%" height={196}>
+    <ResponsiveContainer width="100%" height={240}>
       <AreaChart
         data={data}
         margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
@@ -651,6 +652,158 @@ const SolarLoadChartBody = memo(function SolarLoadChartBody({
 
 function SolarLoadChart({
   data,
+  currentPvToLoad,
+  currentBattToLoad,
+  currentGridToLoad,
+  domain,
+}: {
+  data: Row[];
+  currentPvToLoad: string;
+  currentBattToLoad: string;
+  currentGridToLoad: string;
+  domain: [number, number];
+}) {
+  const sources = [
+    { value: currentPvToLoad, color: C.solar },
+    { value: currentBattToLoad, color: C.discharge },
+    { value: currentGridToLoad, color: C.grid },
+  ];
+  const hasAny = sources.some((s) => s.value !== "—");
+  return (
+    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Load Sources</span>
+        <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
+          {!hasAny ? (
+            <span className="text-faint">—</span>
+          ) : (
+            sources.map((s, i) => {
+              const active = s.value !== "—" && s.value !== "0.0";
+              return (
+                <Fragment key={i}>
+                  {i > 0 && <span className="text-xs text-faint">/</span>}
+                  <span style={{ color: s.color }} className={active ? "" : "opacity-35"}>
+                    {s.value} <small>kW</small>
+                  </span>
+                </Fragment>
+              );
+            })
+          )}
+        </span>
+      </div>
+      <SolarLoadChartBody data={data} domain={domain} />
+      <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
+        <span className="font-mono text-xs tracking-wide text-faint">load power sources</span>
+        <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
+          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.solar }} /> Solar</span>
+          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.grid }} /> Grid</span>
+          <span className="inline-flex items-center gap-1.5 text-faint"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load }} /> Load</span>
+          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.discharge }} /> Discharge</span>
+          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.charge }} /> Charge</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SolarGenTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { value: number; name: string; color: string }[];
+  label?: number;
+}) {
+  if (!active || !payload || !payload.length) return null;
+  const solar = payload.find((p) => p.name === "Solar");
+  const load = payload.find((p) => p.name === "Load");
+  return (
+    <div className="rounded-card border border-line-hi bg-bg px-3 py-2 font-mono text-xs shadow-xl shadow-black/40">
+      <div className="mb-1.5 text-xs text-faint">{label ? fullTime(label) : ""}</div>
+      {solar && (
+        <div className="flex items-center justify-between gap-4 leading-relaxed">
+          <span style={{ color: solar.color }}>Solar</span>
+          <span>{num(solar.value, 0)} W</span>
+        </div>
+      )}
+      {load && (
+        <div className="flex items-center justify-between gap-4 leading-relaxed">
+          <span style={{ color: load.color }}>Load</span>
+          <span>{num(load.value, 0)} W</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const SolarGenerationChartBody = memo(function SolarGenerationChartBody({
+  data,
+  domain,
+}: {
+  data: Row[];
+  domain: [number, number];
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={196}>
+      <AreaChart
+        data={data}
+        margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+        syncId={CHART_SYNC_ID}
+      >
+        <CartesianGrid stroke={C.line} vertical={false} />
+        <XAxis
+          dataKey="t"
+          type="number"
+          scale="time"
+          domain={domain}
+          tickFormatter={(v) => clockTime(v)}
+          tick={AXIS}
+          stroke={C.line}
+          minTickGap={48}
+        />
+        <YAxis
+          tick={AXIS}
+          stroke={C.line}
+          width={34}
+          domain={[0, "auto"]}
+          tickFormatter={(v) => num(v, 0)}
+        />
+        <Tooltip
+          content={<SolarGenTooltip />}
+          isAnimationActive={false}
+          cursor={{ stroke: C.lineHi, strokeWidth: 1, strokeDasharray: "4 4" }}
+        />
+        <Area
+          type="stepAfter"
+          dataKey="pv"
+          name="Solar"
+          stroke={C.solar}
+          strokeWidth={1.6}
+          fill={C.solar}
+          fillOpacity={0.15}
+          dot={false}
+          isAnimationActive={false}
+          connectNulls
+        />
+        <Area
+          type="stepAfter"
+          dataKey="loadW"
+          name="Load"
+          stroke="rgba(200,204,210,0.2)"
+          strokeWidth={1.2}
+          fill="none"
+          dot={false}
+          isAnimationActive={false}
+          connectNulls
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+});
+
+function SolarGenerationChart({
+  data,
   currentSolar,
   currentLoad,
   domain,
@@ -663,22 +816,19 @@ function SolarLoadChart({
   return (
     <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Solar / Load</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Solar Generation</span>
         <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
           <span style={{ color: C.solar }}>{currentSolar} <small>W</small></span>
-          <span className="text-sm text-faint">/</span>
-          <span style={{ color: C.load }}>{currentLoad} <small>kW</small></span>
+          <span className="text-xs text-faint">/</span>
+          <span className="text-faint">{currentLoad} <small>W</small></span>
         </span>
       </div>
-      <SolarLoadChartBody data={data} domain={domain} />
+      <SolarGenerationChartBody data={data} domain={domain} />
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
-        <span className="font-mono text-xs tracking-wide text-faint">solar production vs load demand</span>
+        <span className="font-mono text-xs tracking-wide text-faint">total pv output</span>
         <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
           <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.solar }} /> Solar</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.grid }} /> Grid</span>
-          <span className="inline-flex items-center gap-1.5 text-faint"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load }} /> Load</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.discharge }} /> Discharge</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.charge }} /> Charge</span>
+          <span className="inline-flex items-center gap-1.5 text-faint"><i className="inline-block h-0.5 w-2.5" style={{ background: C.load, opacity: 0.5 }} /> Load</span>
         </div>
       </div>
     </div>
@@ -745,13 +895,14 @@ function MetricChart({
 
 
 export default function Charts({
-  hours,
-  setHours,
+  range,
+  setRange,
   history,
   voltage,
   voltageThresholds,
   latest,
 }: Props) {
+  const hours = hoursForRange(range);
   const rows: Row[] = useMemo(
     () =>
       (history?.points ?? []).map((p) => ({
@@ -884,11 +1035,14 @@ export default function Charts({
   );
 
   const domain = useMemo<[number, number]>(() => {
-    const domainStart = rows.length
-      ? Math.min(rows[0].t, serverNow - windowMs)
-      : serverNow - windowMs;
+    const domainStart =
+      range === "today"
+        ? jakartaMidnightMs()
+        : rows.length
+          ? Math.min(rows[0].t, serverNow - windowMs)
+          : serverNow - windowMs;
     return [domainStart, serverNow];
-  }, [rows, serverNow, windowMs]);
+  }, [range, rows, serverNow, windowMs]);
 
   const voltDomain = useMemo<
     [number | ((v: number) => number), number | ((v: number) => number)] | undefined
@@ -907,18 +1061,25 @@ export default function Charts({
 
   return (
     <section className="mt-6 animate-[fadein_0.5s_ease_both]">
-      <div className="mb-2.5 flex items-baseline justify-between gap-3 border-b border-line pb-2 sm:mb-3 sm:gap-4">
-        <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">Trends</h2>
+      <div className="mb-2.5 flex items-baseline justify-between gap-3 sm:mb-3 sm:gap-4">
+        <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
+          <LineChart size={14} strokeWidth={1.8} /> Trends
+        </h2>
         <div className="inline-flex overflow-hidden rounded-card border border-line">
           {RANGES.map((r) => (
             <button
-              key={r.h}
-              className={`border-r border-line px-2.5 py-1.5 font-mono text-xs transition-colors last:border-r-0 sm:px-3.5 ${
-                hours === r.h
-                  ? "bg-panel-hi text-solar"
+              key={r.key}
+              className={`border-r border-line py-1.5 font-mono text-xs transition-colors last:border-r-0 ${
+                r.key === "today" ? "px-2.5 sm:px-3" : "px-2 sm:px-2.5"
+              } ${
+                range === r.key
+                  ? r.key === "today"
+                    ? "bg-panel-hi text-charge"
+                    : "bg-panel-hi text-solar"
                   : "bg-panel text-dim hover:border-line-hi hover:text-text"
               }`}
-              onClick={() => setHours(r.h)}
+              title={r.title}
+              onClick={() => setRange(r.key)}
             >
               {r.label}
             </button>
@@ -941,10 +1102,10 @@ export default function Charts({
           yDomain={voltDomain}
           thresholds={voltageThresholds}
         />
-        <SolarLoadChart
+        <SolarGenerationChart
           data={rows}
           currentSolar={cur(latest?.pv_power, 0)}
-          currentLoad={cur(latest?.load_power, 2)}
+          currentLoad={cur(latest?.load_power == null ? null : latest.load_power * 1000, 0)}
           domain={domain}
         />
         <MetricChart
@@ -957,6 +1118,15 @@ export default function Charts({
           current={cur(latest?.grid_voltage, 0)}
           domain={domain}
         />
+        <div className="lg:col-span-2">
+          <SolarLoadChart
+            data={rows}
+            currentPvToLoad={cur(latest?.pv_to_load_kw, 1)}
+            currentBattToLoad={cur(latest?.battery_to_load_kw, 1)}
+            currentGridToLoad={cur(latest?.grid_to_load_kw, 1)}
+            domain={domain}
+          />
+        </div>
       </div>
     </section>
   );
