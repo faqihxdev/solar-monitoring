@@ -393,8 +393,8 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
       )}
 
       <div className="grid grid-cols-1 gap-3">
-        <div className="rounded-card border border-line bg-panel p-4">
-          <div className="mb-3.5 flex items-start justify-between gap-4">
+        <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
             <div>
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <Target size={14} strokeWidth={1.8} /> Practical SOC target
@@ -415,7 +415,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
             </div>
           </div>
 
-          <div className="mb-3.5 flex items-center justify-between gap-3.5 rounded-card border border-line bg-panel-hi px-3 py-2.5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5 rounded-card border border-line bg-panel-hi px-2.5 py-2.5 sm:mb-3.5 sm:gap-3.5 sm:px-3">
             <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
               <input
                 className="control-switch-input"
@@ -435,7 +435,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
                 <span className="text-sm font-medium text-text">Enable automatic A6/A7 band changes</span>
               </span>
             </label>
-            <div className="shrink-0 text-right">
+            <div className="w-full text-left sm:w-auto sm:shrink-0 sm:text-right">
               {formDirty ? (
                 <span className="font-mono text-xs tracking-wide text-solar">Unsaved · press Save target</span>
               ) : (
@@ -446,7 +446,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
             </div>
           </div>
 
-          <div className="mt-3.5 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:mt-3.5 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1.5">
               <span className="text-[10px] uppercase tracking-wider text-faint">Target SOC</span>
               <input
@@ -506,12 +506,12 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
             </label>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line lg:grid-cols-5">
-            <div className="bg-panel-hi px-3 py-2">
+          <div className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-5">
+            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
               <span className="block text-[10px] uppercase tracking-wider text-faint">Target</span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">{targetSummary}</span>
             </div>
-            <div className="bg-panel-hi px-3 py-2">
+            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
               <span className="block text-[10px] uppercase tracking-wider text-faint">Practical / expected</span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">
                 {practicalSummary} / {desiredSummary}
@@ -520,11 +520,11 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
                 )}
               </span>
             </div>
-            <div className="bg-panel-hi px-3 py-2">
+            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
               <span className="block text-[10px] uppercase tracking-wider text-faint">Power now</span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">{powerSummary}</span>
             </div>
-            <div className="bg-panel-hi px-3 py-2">
+            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
               <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-faint">
                 Protection band
                 <span className="group relative inline-flex">
@@ -544,7 +544,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
                 {targetBandLabel}
               </span>
             </div>
-            <div className="bg-panel-hi px-3 py-2">
+            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
               <span className="block text-[10px] uppercase tracking-wider text-faint">Next check</span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">{nextEvaluation}</span>
             </div>
@@ -577,8 +577,8 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
           </div>
         </div>
 
-        <div className="rounded-card border border-line bg-panel p-4">
-          <div className="mb-3.5 flex items-start justify-between gap-4">
+        <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
             <div>
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <RefreshCw size={14} strokeWidth={1.8} /> Device controls
@@ -635,8 +635,8 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
           )}
         </div>
 
-        <div className="rounded-card border border-line bg-panel p-4">
-          <div className="mb-3.5 flex items-start justify-between gap-4">
+        <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
             <div>
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
                 <ListChecks size={14} strokeWidth={1.8} /> Action timeline
@@ -711,7 +711,7 @@ function ControlGroup({
             const labelColor = controlLabelColors.get(control.id);
             return (
               <div
-                className="grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-card border border-line bg-panel-hi px-3 py-2 lg:grid-cols-12"
+                className="grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-card border border-line bg-panel-hi px-2.5 py-2 sm:px-3 lg:grid-cols-12"
                 key={control.id}
               >
                 <div className="min-w-0 lg:col-span-3">
@@ -793,7 +793,7 @@ function ControlGroup({
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center justify-end gap-1.5 lg:col-span-2">
+                <div className="flex items-center justify-start gap-1.5 lg:col-span-2 lg:justify-end">
                   <button
                     className="inline-flex min-h-7 items-center justify-center gap-1 rounded-card border border-line bg-panel-hi px-2.5 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
                     onClick={() => readOne(control)}
@@ -831,7 +831,7 @@ function ControlGroup({
 function EventRow({ event }: { event: ControlEvent }) {
   return (
     <div
-      className={`grid grid-cols-1 gap-3 rounded-card border border-line border-l-2 bg-panel-hi px-3 py-2.5 md:grid-cols-5 ${eventToneClass[event.status] ?? "border-l-line"}`}
+      className={`grid grid-cols-1 gap-2.5 rounded-card border border-line border-l-2 bg-panel-hi px-2.5 py-2.5 sm:px-3 md:grid-cols-5 md:gap-3 ${eventToneClass[event.status] ?? "border-l-line"}`}
     >
       <div className="font-mono text-xs tabular-nums text-faint md:col-span-1">{eventTime(event)}</div>
       <div className="min-w-0 md:col-span-4">

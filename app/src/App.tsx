@@ -57,7 +57,7 @@ export default function App() {
   const firstLoad = summary.isLoading && !summary.data;
 
   return (
-    <div className="mx-auto max-w-7xl px-6 pb-16 pt-4">
+    <div className="mx-auto max-w-7xl px-2.5 pb-10 pt-2.5 sm:px-4 sm:pb-14 sm:pt-4 lg:px-6 lg:pb-16">
       <Header
         deviceSn={deviceSn}
         latest={latest}

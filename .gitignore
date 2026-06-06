@@ -49,3 +49,5 @@ Thumbs.db
 
 .agents/
 skills-lock.json
+
+DEPLOYMENT_NOTES.local.md

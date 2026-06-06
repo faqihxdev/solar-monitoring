@@ -326,19 +326,19 @@ function CombinedSocChart({
   domain: [number, number];
 }) {
   return (
-    <div className="rounded-card border border-line bg-panel px-3 pb-2 pt-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase tracking-widest text-dim">Battery SOC</span>
-        <span className="flex items-baseline gap-1.5 font-mono text-base tabular-nums">
+    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Battery SOC</span>
+        <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
           <span style={{ color: C.battery }}>{currentPractical} <small>%</small></span>
           <span className="text-sm text-faint">/</span>
           <span style={{ color: C.textFaint }}>{currentReported} <small>%</small></span>
         </span>
       </div>
       <SocChartBody data={data} domain={domain} danger={{ from: 0, to: 10 }} />
-      <div className="flex min-h-5 items-center justify-between pt-1.5">
+      <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
         <span className="font-mono text-xs tracking-wide text-faint">practical curve vs reported estimate</span>
-        <div className="flex gap-3.5 text-xs text-dim">
+        <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
           <span className="inline-flex items-center gap-1.5">
             <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.battery }} /> Practical
           </span>
@@ -516,10 +516,10 @@ function PackVoltageChart({
   thresholds?: ThresholdEntry[];
 }) {
   return (
-    <div className="rounded-card border border-line bg-panel px-3 pb-2 pt-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase tracking-widest text-dim">Pack Voltage</span>
-        <span className="flex items-baseline gap-1.5 font-mono text-base tabular-nums">
+    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Pack Voltage</span>
+        <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
           <span style={{ color: C.battery }}>{currentVoltage} <small>V</small></span>
           <span className="text-sm text-faint">/</span>
           <span style={{ color: C.textFaint }}>{currentPractical} <small>%</small></span>
@@ -531,9 +531,9 @@ function PackVoltageChart({
         yDomain={yDomain}
         thresholds={thresholds}
       />
-      <div className="flex min-h-5 items-center justify-between pt-1.5">
+      <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
         <span className="font-mono text-xs tracking-wide text-faint">line axis with fixed practical V-% guide</span>
-        <div className="flex gap-3.5 text-xs text-dim">
+        <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
           <span className="inline-flex items-center gap-1.5">
             <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.battery }} /> Voltage
           </span>
@@ -661,19 +661,19 @@ function SolarLoadChart({
   domain: [number, number];
 }) {
   return (
-    <div className="rounded-card border border-line bg-panel px-3 pb-2 pt-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase tracking-widest text-dim">Solar / Load</span>
-        <span className="flex items-baseline gap-1.5 font-mono text-base tabular-nums">
+    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Solar / Load</span>
+        <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
           <span style={{ color: C.solar }}>{currentSolar} <small>W</small></span>
           <span className="text-sm text-faint">/</span>
           <span style={{ color: C.load }}>{currentLoad} <small>kW</small></span>
         </span>
       </div>
       <SolarLoadChartBody data={data} domain={domain} />
-      <div className="flex min-h-5 items-center justify-between pt-1.5">
+      <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
         <span className="font-mono text-xs tracking-wide text-faint">solar production vs load demand</span>
-        <div className="flex gap-3.5 text-xs text-dim">
+        <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
           <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.solar }} /> Solar</span>
           <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.grid }} /> Grid</span>
           <span className="inline-flex items-center gap-1.5 text-faint"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load }} /> Load</span>
@@ -715,10 +715,10 @@ function MetricChart({
   headerNote?: string;
 }) {
   return (
-    <div className={`${wide ? "col-span-full" : ""} rounded-card border border-line bg-panel px-3 pb-2 pt-3`}>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase tracking-widest text-dim">{title}</span>
-        <span className="font-mono text-base tabular-nums" style={{ color }}>
+    <div className={`${wide ? "lg:col-span-full" : ""} rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3`}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">{title}</span>
+        <span className="font-mono text-sm tabular-nums sm:text-base" style={{ color }}>
           {current} <small>{unit}</small>
         </span>
       </div>
@@ -907,13 +907,13 @@ export default function Charts({
 
   return (
     <section className="mt-6 animate-[fadein_0.5s_ease_both]">
-      <div className="mb-3 flex items-baseline justify-between gap-4 border-b border-line pb-2">
+      <div className="mb-2.5 flex items-baseline justify-between gap-3 border-b border-line pb-2 sm:mb-3 sm:gap-4">
         <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">Trends</h2>
         <div className="inline-flex overflow-hidden rounded-card border border-line">
           {RANGES.map((r) => (
             <button
               key={r.h}
-              className={`border-r border-line px-3.5 py-1.5 font-mono text-xs transition-colors last:border-r-0 ${
+              className={`border-r border-line px-2.5 py-1.5 font-mono text-xs transition-colors last:border-r-0 sm:px-3.5 ${
                 hours === r.h
                   ? "bg-panel-hi text-solar"
                   : "bg-panel text-dim hover:border-line-hi hover:text-text"
@@ -926,7 +926,7 @@ export default function Charts({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3.5">
+      <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-3.5">
         <CombinedSocChart
           data={batteryRows}
           currentPractical={cur(latestPracticalSoc, 0)}

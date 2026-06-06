@@ -107,22 +107,22 @@ export default function KpiStrip({ latest, voltageThresholds = [] }: Props) {
   ];
 
   return (
-    <div className="animate-[fadein_0.5s_ease_both] mt-3.5 grid grid-cols-4 gap-3">
+    <div className="animate-[fadein_0.5s_ease_both] mt-2.5 grid grid-cols-2 gap-2 sm:mt-3.5 sm:grid-cols-4 sm:gap-3">
       {tiles.map((t) => (
         <div
-          className="rounded-card border border-line border-l-2 bg-panel px-4 py-3.5"
+          className="rounded-card border border-line border-l-2 bg-panel px-3 py-2.5 sm:px-4 sm:py-3.5"
           key={t.label}
           style={{ borderLeftColor: t.color }}
         >
-          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-dim">
+          <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">
             <span>{t.label}</span>
             <span style={{ color: t.color }}>{t.icon}</span>
           </div>
-          <div className="mt-2.5 font-mono text-3xl font-medium leading-none tracking-tight tabular-nums">
+          <div className="mt-2 font-mono text-2xl font-medium leading-none tracking-tight tabular-nums sm:mt-2.5 sm:text-3xl">
             {t.value}
             {t.unit && <span className="ml-1 text-sm font-normal text-dim">{t.unit}</span>}
           </div>
-          <div className="mt-1.5 min-h-4 text-xs text-faint">{t.sub}</div>
+          <div className="mt-1 min-h-4 text-[11px] text-faint sm:mt-1.5 sm:text-xs">{t.sub}</div>
         </div>
       ))}
     </div>

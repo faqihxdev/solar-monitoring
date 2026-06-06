@@ -228,18 +228,18 @@ export default function EnergyFlow({
 
   return (
     <div className="animate-[fadein_0.5s_ease_both] flex flex-col overflow-hidden rounded-card border border-line bg-panel">
-      <div className="flex flex-wrap items-center justify-between gap-3.5 px-5 pb-1.5 pt-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 pb-1.5 pt-3 sm:px-5 sm:pt-3.5">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
           <Workflow size={14} strokeWidth={1.8} /> Power flow
         </span>
       </div>
 
-      <div className="px-5 pb-3 pt-1">
+      <div className="px-2 pb-2.5 pt-1 sm:px-5 sm:pb-3">
         <FlowDiagram width={1034} height={300} nodes={nodes} links={links} />
       </div>
 
       {unmeasuredCharge && (
-        <p className="px-4 pb-3 text-xs text-faint">
+        <p className="px-3 pb-3 text-xs text-faint sm:px-4">
           Charging path reported by DESSMonitor; charge power is not metered by this protocol.
         </p>
       )}

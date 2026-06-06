@@ -141,7 +141,7 @@ export default function DailyEnergy() {
 
   return (
     <section className="mt-6 animate-[fadein_0.5s_ease_both]">
-      <div className="mb-3 flex items-baseline justify-between gap-4 border-b border-line pb-2">
+      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2.5 border-b border-line pb-2 sm:mb-3 sm:gap-4">
         <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
           Daily Energy
         </h2>
@@ -186,13 +186,13 @@ export default function DailyEnergy() {
       <div className="rounded-card border border-line bg-panel">
         {isLoading && !data ? (
           <div className="grid min-h-44 grid-cols-1 items-stretch lg:grid-cols-12">
-            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
+            <div className="flex min-w-0 flex-col gap-2.5 px-3 py-3 lg:col-span-3 lg:border-r lg:border-line lg:px-4 lg:py-3.5">
               <div className="mb-2.5 h-2.5 w-1/2 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
               <div className="mb-2.5 h-7 w-2/3 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
               <div className="mb-2.5 h-7 w-2/3 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
               <div className="mb-2.5 mt-2 h-3.5 w-4/5 animate-[skel-pulse_1.4s_ease-in-out_infinite] rounded bg-line" />
             </div>
-            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
+            <div className="flex min-w-0 flex-col gap-2.5 px-3 py-3 lg:col-span-3 lg:border-r lg:border-line lg:px-4 lg:py-3.5">
               {[1, 2, 3, 4].map((n) => (
                 <div
                   key={n}
@@ -200,7 +200,7 @@ export default function DailyEnergy() {
                 />
               ))}
             </div>
-            <div className="flex min-h-36 min-w-0 flex-col justify-between px-4 py-3.5 opacity-30 lg:col-span-6">
+            <div className="flex min-h-32 min-w-0 flex-col justify-between px-3 py-3 opacity-30 lg:col-span-6 lg:min-h-36 lg:px-4 lg:py-3.5">
               <div className="h-full rounded-card bg-line" />
             </div>
           </div>
@@ -210,7 +210,7 @@ export default function DailyEnergy() {
             style={{ opacity: isFetching ? 0.5 : 1, transition: "opacity 0.15s" }}
           >
             {/* ── col 1: numbers ── */}
-            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
+            <div className="flex min-w-0 flex-col gap-2.5 px-3 py-3 lg:col-span-3 lg:border-r lg:border-line lg:px-4 lg:py-3.5">
               <div className="mb-1 border-b border-line pb-1.5 font-mono text-xs tracking-wide text-faint">
                 {formatDateLong(date)}
                 {selected && (
@@ -223,13 +223,13 @@ export default function DailyEnergy() {
                 <>
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-dim">Solar</span>
-                    <span className="font-mono text-xl font-medium tracking-tight tabular-nums" style={{ color: C.solar }}>
+                    <span className="font-mono text-lg font-medium tracking-tight tabular-nums sm:text-xl" style={{ color: C.solar }}>
                       {kwhStr(selected.solar_kwh)}<small> kWh</small>
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-dim">Load</span>
-                    <span className="font-mono text-xl font-medium tracking-tight tabular-nums" style={{ color: C.load }}>
+                    <span className="font-mono text-lg font-medium tracking-tight tabular-nums sm:text-xl" style={{ color: C.load }}>
                       {kwhStr(selected.load_kwh)}<small> kWh</small>
                     </span>
                   </div>
@@ -245,7 +245,7 @@ export default function DailyEnergy() {
             </div>
 
             {/* ── col 2: flow breakdown ── */}
-            <div className="flex min-w-0 flex-col gap-2.5 px-4 py-3.5 lg:col-span-3 lg:border-r lg:border-line">
+            <div className="flex min-w-0 flex-col gap-2.5 px-3 py-3 lg:col-span-3 lg:border-r lg:border-line lg:px-4 lg:py-3.5">
               <div className="mb-1 border-b border-line pb-1.5 font-mono text-xs tracking-wide text-faint">
                 Flow breakdown
               </div>
@@ -274,7 +274,7 @@ export default function DailyEnergy() {
             </div>
 
             {/* ── col 3: 7-day chart ── */}
-            <div className="flex min-w-0 flex-col justify-between px-4 py-3.5 lg:col-span-6">
+            <div className="flex min-w-0 flex-col justify-between px-3 py-3 lg:col-span-6 lg:px-4 lg:py-3.5">
               <div className="mb-1 border-b border-line pb-1.5 font-mono text-xs tracking-wide text-faint">
                 7-day comparison
               </div>
