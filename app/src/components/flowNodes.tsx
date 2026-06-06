@@ -14,11 +14,7 @@ import { C, FONT } from "../theme";
  * ------------------------------------------------------------------ */
 
 export function FlowChip({ icon: Icon, color }: { icon: LucideIcon; color: string }) {
-  return (
-    <span className="inline-grid h-5 w-5 shrink-0 place-items-center rounded border border-line-hi" style={{ color }}>
-      <Icon size={13} strokeWidth={1.9} />
-    </span>
-  );
+  return <Icon className="shrink-0" size={14} strokeWidth={1.9} style={{ color }} />;
 }
 
 export function FlowRing({
@@ -117,10 +113,7 @@ export function RailNode({
   cap,
 }: RailNodeProps) {
   return (
-    <div
-      className="flex w-full flex-col justify-center gap-2 rounded-card border border-line-hi border-l-2 bg-panel-hi px-3 py-2.5"
-      style={{ borderLeftColor: color }}
-    >
+    <div className="flex w-full flex-col justify-center gap-2 rounded-card border border-line-hi bg-panel-hi px-3 py-2.5">
       <div className="flex items-center gap-1.5">
         <FlowChip icon={icon} color={active ? color : C.textDim} />
         <span className="text-xs font-semibold uppercase tracking-wider text-dim">{label}</span>
@@ -276,7 +269,7 @@ export function FlowDiagram({
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="block h-auto w-full overflow-visible"
+      className="block h-auto w-full"
       preserveAspectRatio="xMidYMid meet"
     >
       {links.map((l) => (
@@ -298,8 +291,10 @@ export function FlowDiagram({
         <LinkLabel key={`lbl-${l.id}`} link={l} />
       ))}
       {nodes.map((n) => (
-        <foreignObject key={n.id} x={n.box.x} y={n.box.y} width={n.box.w} height={n.box.h}>
-          <div className="h-full w-full">{n.el}</div>
+        <foreignObject key={n.id} x={n.box.x} y={n.box.y} width={n.box.w} height={n.box.h} overflow="hidden">
+          <div className="h-full w-full overflow-hidden">
+            {n.el}
+          </div>
         </foreignObject>
       ))}
     </svg>

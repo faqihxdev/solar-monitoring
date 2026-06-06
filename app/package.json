@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server/dev.ts",
     "dev:ui": "vite",
+    "dev:ui:vps": "tsx server/dev-ui-vps.ts",
     "dev:api": "tsx watch server/index.ts",
     "api": "tsx server/index.ts",
     "poller": "tsx server/poller.ts",

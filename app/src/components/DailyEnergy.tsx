@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Sun } from "lucide-react";
 import type { DailyPoint } from "../api";
 import { useDailyEnergy } from "../hooks";
 import { todayJkt } from "../format";
@@ -140,10 +141,10 @@ export default function DailyEnergy() {
   const selected = days.find((d) => d.date === date) ?? null;
 
   return (
-    <section className="mt-6 animate-[fadein_0.5s_ease_both]">
-      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2.5 border-b border-line pb-2 sm:mb-3 sm:gap-4">
+    <section className="mt-8 animate-[fadein_0.5s_ease_both] sm:mt-10">
+      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2.5 sm:mb-3 sm:gap-4">
         <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
-          Daily Energy
+          <Sun size={14} strokeWidth={1.8} /> Daily Energy
         </h2>
         <div className="inline-flex items-center gap-1.5">
           <button

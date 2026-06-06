@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { BatteryCharging } from "lucide-react";
 import type { Reading } from "../api";
-import { relativeAge, fullTime } from "../format";
+import { relativeAge, clockTime, fullTime } from "../format";
 
 const DEVICE_TIME_DRIFT_MS = 45 * 60 * 1000;
 
@@ -34,52 +34,53 @@ export default function Header({ deviceSn, latest, online, polledAtMs, lastIso }
     polledAtMs != null &&
     Math.abs(polledAtMs - deviceAtMs) >= DEVICE_TIME_DRIFT_MS;
   const displayAtMs = deviceClockDrifted ? polledAtMs : deviceAtMs;
-  const deviceAgeMs = deviceAtMs != null ? now - deviceAtMs : null;
 
-  let ledClass = "led";
   let freshness = "—";
   if (!online) {
-    ledClass = "led led--off";
     freshness = "Offline";
   } else if (ageMs != null) {
     freshness = relativeAge(ageMs);
   }
-  if (online && (deviceAgeMs ?? ageMs ?? 0) > 120000) ledClass = "led led--stale";
+
+  const timeLabel = displayAtMs != null ? clockTime(displayAtMs) : freshness;
+  const timeTitle =
+    displayAtMs != null
+      ? deviceClockDrifted && deviceAtMs != null
+        ? `Poll time: ${fullTime(displayAtMs)} (device time: ${fullTime(deviceAtMs)})`
+        : `${fullTime(displayAtMs)} device time`
+      : "";
+  const polledTitle = lastIso ? `Poll time: ${fullTime(new Date(lastIso).getTime())}` : "";
+  const mobileTitle = [deviceSn, timeTitle, polledTitle].filter(Boolean).join("\n");
 
   return (
-    <header className="animate-[fadein_0.5s_ease_both] flex flex-wrap items-start justify-between gap-3 rounded-card border border-line bg-panel px-3 py-3 sm:items-center sm:px-4 sm:py-3.5">
-      <div className="flex items-center gap-3 sm:gap-3.5">
-        <div className="grid h-9 w-9 place-items-center rounded-card border border-line-hi text-solar sm:h-10 sm:w-10">
-          <BatteryCharging size={20} strokeWidth={1.6} />
-        </div>
-        <div>
-          <div className="text-lg font-bold leading-none tracking-wide sm:text-xl">
-            Solar <span className="font-light text-dim">Monitor</span>
-          </div>
-          <div className="mt-1 font-mono text-xs tracking-wide tabular-nums text-faint">{deviceSn || "—"}</div>
-        </div>
+    <header className="animate-[fadein_0.5s_ease_both] flex items-center justify-between gap-4 lg:gap-6">
+      <div className="flex min-w-0 items-center gap-2.5 text-lg font-bold leading-tight tracking-wide lg:gap-3 lg:text-xl">
+        <BatteryCharging className="size-7 shrink-0 text-solar lg:size-9" strokeWidth={2} />
+        <span>Solar System</span>
       </div>
 
-      <div className="flex w-full flex-col items-start gap-1 sm:w-auto sm:items-end">
-        <span className="flex items-center gap-2 font-mono text-xs tabular-nums sm:text-sm">
-          <span className={ledClass} />
-          <span
-            title={
-              displayAtMs != null
-                ? deviceClockDrifted && deviceAtMs != null
-                  ? `Poll time: ${fullTime(displayAtMs)} (device time: ${fullTime(deviceAtMs)})`
-                  : `${fullTime(displayAtMs)} device time`
-                : ""
-            }
-          >
-            {displayAtMs != null ? fullTime(displayAtMs) : freshness}
-          </span>
+      <div
+        className="flex shrink-0 items-center gap-x-2 font-mono text-sm tabular-nums lg:hidden"
+        title={mobileTitle}
+      >
+        <span>{timeLabel}</span>
+        <span className="text-faint" aria-hidden>
+          ·
         </span>
-        <span
-          className="font-mono text-xs tabular-nums text-faint"
-          title={lastIso ? `Poll time: ${fullTime(new Date(lastIso).getTime())}` : ""}
-        >
-          polled {freshness}
+        <span className="text-faint">{freshness}</span>
+      </div>
+
+      <div className="hidden items-center gap-x-3 font-mono text-sm tabular-nums lg:flex lg:shrink-0">
+        <span className="max-w-[18rem] truncate text-faint">{deviceSn || "—"}</span>
+        <span className="text-faint" aria-hidden>
+          ·
+        </span>
+        <span title={timeTitle}>{timeLabel}</span>
+        <span className="text-faint" aria-hidden>
+          ·
+        </span>
+        <span className="text-faint" title={polledTitle}>
+          {freshness}
         </span>
       </div>
     </header>
