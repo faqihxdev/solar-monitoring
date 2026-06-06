@@ -41,7 +41,7 @@ function draftValue(control: ControlEntry, drafts: Record<string, string>) {
 }
 
 const TARGET_BASE_SOC = 25;
-const SOLAR_START_MINUTES = 6 * 60 + 30;
+const OPERATION_START_MINUTES = 6 * 60 + 30;
 
 function minutesFromTime(value: string): number | null {
   const match = value.match(/^(\d{2}):(\d{2})$/);
@@ -59,12 +59,12 @@ function timeFromMinutes(totalMinutes: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function targetWindow(targetSoc: string, targetTime: string): string {
+function targetSchedule(targetSoc: string, targetTime: string): string {
   const soc = Number(targetSoc);
   const targetMinutes = minutesFromTime(targetTime);
   if (!Number.isFinite(soc) || targetMinutes == null) return "when enabled";
-  if (soc <= TARGET_BASE_SOC || targetMinutes <= SOLAR_START_MINUTES) return `until ${targetTime}`;
-  return `${timeFromMinutes(SOLAR_START_MINUTES)}-${targetTime}`;
+  if (soc <= TARGET_BASE_SOC || targetMinutes <= OPERATION_START_MINUTES) return "Start now";
+  return `Start ${timeFromMinutes(OPERATION_START_MINUTES)}`;
 }
 
 function automationExplanation(status: AutomationStatus | undefined, draftEnabled: boolean, targetSoc: string, targetTime: string) {
@@ -86,6 +86,14 @@ function automationExplanation(status: AutomationStatus | undefined, draftEnable
   }
 
   const decision = String(status?.decision ?? "").toLowerCase();
+  if (decision.includes("before operation start")) {
+    return {
+      title: "Waiting for start time",
+      body:
+        "Automation is enabled, but it will not write A6/A7 before the morning start time. If it still owns yesterday's raised band, it restores the fallback band once.",
+    };
+  }
+
   if (decision.includes("behind")) {
     return {
       title: "Preserving battery to catch up",
@@ -215,7 +223,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
   const status = automation.data?.automation;
   const savedEnabled = Boolean(status?.enabled);
   const explain = automationExplanation(status, enabled, targetSoc, targetTime);
-  const windowLabel = targetWindow(targetSoc, targetTime);
+  const scheduleLabel = targetSchedule(targetSoc, targetTime);
   const nextEvaluation =
     !savedEnabled
       ? "paused"
@@ -226,7 +234,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
     status?.target_a6 == null || status.target_a7 == null
       ? "—"
       : `A6 ${num(status.target_a6, 1)} / A7 ${num(status.target_a7, 1)}`;
-  const targetSummary = `${targetSoc || "—"}% by ${targetTime || "—"}`;
+  const targetSummary = `${scheduleLabel}, ${targetSoc || "—"}% by ${targetTime || "—"}`;
   const desiredSummary =
     status?.desired_practical_soc_now == null ? "—" : `${Math.round(status.desired_practical_soc_now)}%`;
   const practicalSummary = status?.practical_soc == null ? "—" : `${Math.round(status.practical_soc)}%`;
@@ -498,11 +506,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
             </label>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line lg:grid-cols-7">
-            <div className="col-span-2 bg-panel-hi px-3 py-2 lg:col-span-1">
-              <span className="block text-[10px] uppercase tracking-wider text-faint">Current action</span>
-              <span className="mt-0.5 block text-xs font-semibold text-text">{explain.title}</span>
-            </div>
+          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line lg:grid-cols-5">
             <div className="bg-panel-hi px-3 py-2">
               <span className="block text-[10px] uppercase tracking-wider text-faint">Target</span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">{targetSummary}</span>
@@ -541,17 +545,13 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               </span>
             </div>
             <div className="bg-panel-hi px-3 py-2">
-              <span className="block text-[10px] uppercase tracking-wider text-faint">Window</span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{savedEnabled ? windowLabel : "paused"}</span>
-            </div>
-            <div className="bg-panel-hi px-3 py-2">
               <span className="block text-[10px] uppercase tracking-wider text-faint">Next check</span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">{nextEvaluation}</span>
             </div>
           </div>
 
           <div className="mt-2.5 rounded-card border border-line border-l-2 border-l-battery bg-panel-hi px-3 py-2.5">
-            <span className="block text-[10px] uppercase tracking-wider text-faint">Why this action</span>
+            <span className="text-xs font-semibold text-text">Now: {explain.title}</span>
             <p className="mt-1.5 text-xs leading-relaxed text-dim">{explain.body}</p>
           </div>
 
@@ -855,4 +855,3 @@ function EventRow({ event }: { event: ControlEvent }) {
     </div>
   );
 }
-

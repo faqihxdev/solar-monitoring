@@ -7,3 +7,6 @@
 - `powmr-12v-100ah-product-listing-id.pdf`: Product listing PDF for POWMR 12V 100Ah battery.
 - `zdtid-1-2kw-24v-installation-guide-id.pdf`: Installation guide PDF for ZDTID 1.2KW 24V system.
 - `zd-t-1000w-6000w-hybrid-off-grid-solar-inverter-user-manual.pdf`: User manual PDF for ZD-T hybrid off-grid inverter series.
+
+Repository layout note:
+- The dashboard application now lives in `app/` at the repository root.

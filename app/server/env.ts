@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
 export const uiRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-export const projectRoot = path.resolve(uiRoot, "../..");
+export const projectRoot = path.resolve(uiRoot, "..");
 
 dotenv.config({ path: path.join(projectRoot, ".env"), quiet: true });
 

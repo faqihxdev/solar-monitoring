@@ -19,7 +19,7 @@ const DEFAULT_CHECK_INTERVAL_SECONDS = 15 * 60;
 const TARGET_MARGIN_PCT = 2;
 const BEHIND_MARGIN_PCT = 3;
 const TARGET_BASE_SOC = 25;
-const SOLAR_START_TIME = "06:30";
+const OPERATION_START_TIME = "06:30";
 const SOLAR_CURVE_POWER = 1.6;
 const SOLAR_CURVE_STEPS = 96;
 const BAND_HYSTERESIS_SINGLE_V = 0.1;
@@ -227,6 +227,9 @@ export class AutomationEngine {
     const targetBand = targetProtectionBand(targetVoltage);
     const desiredNow = this.desiredPracticalSocNow(state);
     const nextCheckAt = nowSeconds() + DEFAULT_CHECK_INTERVAL_SECONDS;
+    const now = nowSeconds();
+    const startAt = jakartaTimestampForTime(OPERATION_START_TIME);
+    const targetAt = jakartaTimestampForTime(state.target_time);
 
     if (!state.enabled) {
       if (state.active_override) {
@@ -241,6 +244,49 @@ export class AutomationEngine {
         target_band_capped: Boolean(targetBand?.capped),
         desired_practical_soc_now: desiredNow,
       });
+    }
+
+    if (now < startAt) {
+      if (state.active_override) {
+        return this.restoreBaseline(state, "Before operation start; restoring baseline A6/A7");
+      }
+      return this.recordDecision(
+        state,
+        "before operation start, baseline active",
+        `Waiting for ${OPERATION_START_TIME}; automation will not write A6/A7 before the operation start time`,
+        nextCheckAt,
+        {
+          latest,
+          practical_soc: practicalSoc,
+          target_voltage: targetVoltage,
+          target_a6: targetBand?.a6 ?? null,
+          target_a7: targetBand?.a7 ?? null,
+          target_band_capped: Boolean(targetBand?.capped),
+          desired_practical_soc_now: desiredNow,
+        },
+      );
+    }
+
+    const targetTimePassed = now >= targetAt;
+    if (targetTimePassed) {
+      if (state.active_override) {
+        return this.restoreBaseline(state, "Target time passed; restoring baseline A6/A7");
+      }
+      return this.recordDecision(
+        state,
+        "target time passed, baseline active",
+        "Target time has passed and no override is active",
+        nextCheckAt,
+        {
+          latest,
+          practical_soc: practicalSoc,
+          target_voltage: targetVoltage,
+          target_a6: targetBand?.a6 ?? null,
+          target_a7: targetBand?.a7 ?? null,
+          target_band_capped: Boolean(targetBand?.capped),
+          desired_practical_soc_now: desiredNow,
+        },
+      );
     }
 
     if (voltage == null || practicalSoc == null || targetVoltage == null || targetBand == null || desiredNow == null) {
@@ -260,29 +306,7 @@ export class AutomationEngine {
       );
     }
 
-    const targetAt = jakartaTimestampForTime(state.target_time);
     const targetReached = practicalSoc >= state.target_practical_soc - TARGET_MARGIN_PCT;
-    const targetTimePassed = nowSeconds() >= targetAt;
-    if (targetTimePassed) {
-      if (state.active_override) {
-        return this.restoreBaseline(state, "Target time passed; restoring baseline A6/A7");
-      }
-      return this.recordDecision(
-        state,
-        "target time passed, baseline active",
-        "Target time has passed and no override is active",
-        nextCheckAt,
-        {
-          latest,
-          practical_soc: practicalSoc,
-          target_voltage: targetVoltage,
-          target_a6: targetBand.a6,
-          target_a7: targetBand.a7,
-          target_band_capped: targetBand.capped,
-        },
-      );
-    }
-
     if (targetReached) {
       return this.applyProtectionBand(
         state,
@@ -541,10 +565,11 @@ export class AutomationEngine {
 
   private desiredPracticalSocNow(state: AutomationStateRecord): number | null {
     if (state.target_practical_soc <= TARGET_BASE_SOC) return state.target_practical_soc;
-    const startAt = jakartaTimestampForTime(SOLAR_START_TIME);
+    const startAt = jakartaTimestampForTime(OPERATION_START_TIME);
     const targetAt = jakartaTimestampForTime(state.target_time);
     const now = nowSeconds();
     if (now >= targetAt) return state.target_practical_soc;
+    if (now < startAt) return null;
     if (targetAt <= startAt) return TARGET_BASE_SOC;
 
     const progress = solarOpportunityFraction(now, startAt, targetAt);
