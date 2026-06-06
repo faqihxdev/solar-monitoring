@@ -13,6 +13,15 @@ export function env(name: string, fallback?: string): string {
   return value;
 }
 
+function envPort(name: string, fallback: number): number {
+  const raw = process.env[name] ?? String(fallback);
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1024 || parsed > 65535) {
+    throw new Error(`${name} must be an integer in [1024, 65535], got "${raw}"`);
+  }
+  return parsed;
+}
+
 export const config = {
   usr: env("DESS_USR"),
   pwd: env("DESS_PWD"),
@@ -24,7 +33,7 @@ export const config = {
   i18n: process.env.DESS_I18N ?? "en_US",
   dbPath: path.resolve(projectRoot, process.env.DESS_DB_PATH ?? "data/solar.db"),
   controlDbPath: path.resolve(projectRoot, process.env.DESS_CONTROL_DB_PATH ?? "data/solar-control.db"),
-  apiPort: Number(process.env.DESS_DASHBOARD_PORT ?? "8080"),
+  apiPort: envPort("DESS_DASHBOARD_PORT", 43871),
 };
 
 export function sqlJsWasmPath(file: string): string {
