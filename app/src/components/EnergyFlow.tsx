@@ -1,5 +1,5 @@
 import type { Reading, Summary, ThresholdEntry } from "../api";
-import { estimatePracticalEta, medianVoltage, practicalBattery } from "../batteryModel";
+import { estimatePracticalEta, meanVoltage, practicalBattery } from "../batteryModel";
 import { deriveFlows, FLOW_MIN_KW } from "../energy";
 import { watts, powerKw, num } from "../format";
 import { C, statusColor, statusLabel } from "../theme";
@@ -51,7 +51,7 @@ export default function EnergyFlow({
   // Smooth the voltage over a trailing window before mapping to practical SOC,
   // so the displayed gauge does not jump on 0.2V steps / load transients.
   // The raw pack voltage is still shown unsmoothed on the ring metric below.
-  const smoothedVoltage = medianVoltage(
+  const smoothedVoltage = meanVoltage(
     [
       ...history.map((r) => ({ t: r.polled_at, v: r.battery_voltage })),
       ...(latest ? [{ t: latest.polled_at, v: latest.battery_voltage }] : []),
@@ -78,7 +78,7 @@ export default function EnergyFlow({
       : socRange
         ? `Range ${socRange}`
         : null;
-  // Surface the smoothed (15-min median) pack voltage that the practical SOC %
+  // Surface the smoothed (15-min mean) pack voltage that the practical SOC %
   // is derived from, so it's clear the ring isn't computed off the raw reading.
   const smoothedCap = smoothedVoltage != null ? `SOC from ${num(smoothedVoltage, 1)}V avg` : null;
   const batteryCaps = [baseCap, smoothedCap].filter((c): c is string => Boolean(c));

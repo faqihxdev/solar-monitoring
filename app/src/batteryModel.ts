@@ -120,8 +120,11 @@ export function practicalSocPct(voltage: number | null | undefined): number | nu
 // Trailing window used to smooth the *displayed* practical SOC. Because the
 // curve is steep across the operating plateau, raw 0.2V quantization steps and
 // brief load-sag transients translate into visible % jumps. We smooth the
-// voltage (the physical input) before the nonlinear mapping, using a median so
-// momentary load surges/dips do not yank the gauge.
+// voltage (the physical input) before the nonlinear mapping using a MEAN: a
+// median just re-picks one of the discrete 0.2V steps (so it still snaps),
+// whereas the mean lands between steps (e.g. 25.5V) and maps to a smooth %.
+// Over a 15-min window a momentary load-sag sample is a small fraction of the
+// average, so the mean stays robust as well.
 export const PRACTICAL_SOC_SMOOTHING_MINUTES = 15;
 
 export interface VoltageSamplePoint {
@@ -129,7 +132,7 @@ export interface VoltageSamplePoint {
   v: number | null | undefined;
 }
 
-export function medianVoltage(
+export function meanVoltage(
   samples: ReadonlyArray<VoltageSamplePoint>,
   anchorSec: number | null | undefined,
   windowMinutes: number = PRACTICAL_SOC_SMOOTHING_MINUTES
@@ -142,16 +145,16 @@ export function medianVoltage(
   }
   if (anchor == null) return null;
   const cutoff = anchor - windowMinutes * 60;
-  const vals: number[] = [];
+  let sum = 0;
+  let count = 0;
   for (const s of samples) {
     if (s.t < cutoff || s.t > anchor + 120) continue;
     if (s.v == null || !Number.isFinite(s.v)) continue;
-    vals.push(s.v);
+    sum += s.v;
+    count += 1;
   }
-  if (!vals.length) return null;
-  vals.sort((a, b) => a - b);
-  const mid = Math.floor(vals.length / 2);
-  return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+  if (!count) return null;
+  return sum / count;
 }
 
 export function voltageForPracticalSoc(soc: number | null | undefined): number | null {
@@ -242,9 +245,9 @@ export function estimatePracticalEta(
   latest: Reading | null | undefined,
   thresholds: ThresholdEntry[]
 ): PracticalEta | null {
-  // Use the same trailing median voltage as the gauge so the ETA's starting
+  // Use the same trailing mean voltage as the gauge so the ETA's starting
   // SOC doesn't jump with the 0.2V quantization steps.
-  const smoothed = medianVoltage(
+  const smoothed = meanVoltage(
     [
       ...history.map((p) => ({ t: p.polled_at, v: p.battery_voltage })),
       ...(latest?.battery_voltage != null && latest?.polled_at != null
