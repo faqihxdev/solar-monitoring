@@ -61,6 +61,24 @@ export function jakartaMidnightMs(): number {
   return Date.parse(`${dateStr}T00:00:00+07:00`);
 }
 
+export function offsetDate(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+export function jakartaMidnightMsForDate(date: string): number {
+  return Date.parse(`${date}T00:00:00+07:00`);
+}
+
+export function formatDayShort(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
 export function hoursForRange(range: RangeKey): number {
   if (range === "today") {
     const elapsed = (Date.now() - jakartaMidnightMs()) / (3600 * 1000);

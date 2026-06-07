@@ -1,14 +1,8 @@
-import { useState } from "react";
 import { Sun } from "lucide-react";
 import type { DailyPoint } from "../api";
 import { useDailyEnergy } from "../hooks";
-import { todayJkt } from "../format";
+import { todayJkt, offsetDate, formatDayShort } from "../format";
 import { C, FONT } from "../theme";
-
-function offsetDate(date: string, days: number): string {
-  const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
 
 function formatDateLong(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -17,15 +11,6 @@ function formatDateLong(date: string): string {
     day: "numeric",
     month: "short",
     year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
-function formatDayShort(date: string): string {
-  const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
     timeZone: "UTC",
   });
 }
@@ -130,9 +115,13 @@ function NetBadge({ net }: { net: number }) {
   );
 }
 
-export default function DailyEnergy() {
+interface DailyEnergyProps {
+  date: string;
+  setDate: (d: string) => void;
+}
+
+export default function DailyEnergy({ date, setDate }: DailyEnergyProps) {
   const today = todayJkt();
-  const [date, setDate] = useState(today);
   const { data, isLoading, isFetching } = useDailyEnergy(date, 7);
 
   const isToday = date === today;
@@ -146,27 +135,18 @@ export default function DailyEnergy() {
         <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
           <Sun size={14} strokeWidth={1.8} /> Daily Energy
         </h2>
-        <div className="inline-flex items-center gap-1.5">
+        <div className="inline-flex items-center gap-1">
           <button
-            className={`inline-grid h-6.5 place-items-center rounded-card border px-2 font-mono text-xs leading-none tracking-wider ${
-              isToday
-                ? "cursor-default border-charge bg-charge/15 text-charge"
-                : "cursor-pointer border-line bg-panel text-faint hover:border-line-hi hover:text-dim"
-            }`}
-            onClick={() => !isToday && setDate(today)}
-            disabled={isToday}
-            title="Jump to today"
-          >
-            today
-          </button>
-          <button
-            className="grid h-6.5 w-6.5 cursor-pointer place-items-center rounded-card border border-line bg-panel p-0 text-base leading-none text-dim transition-colors hover:border-line-hi hover:text-text"
+            className={`grid h-6.5 w-6.5 place-items-center rounded-card border bg-panel p-0 text-base leading-none text-dim transition-colors hover:border-line-hi hover:text-text cursor-pointer border-line`}
             onClick={() => setDate(offsetDate(date, -1))}
             title="Previous day"
           >
             ‹
           </button>
-          <span className="inline-flex min-w-18 items-center justify-center gap-1.5 text-center font-mono text-xs tabular-nums text-dim">
+          <span
+            className="inline-flex min-w-18 items-center justify-center text-center font-mono text-xs tabular-nums"
+            style={{ color: isToday ? C.charge : C.textDim }}
+          >
             {formatDayShort(date)}
           </span>
           <button

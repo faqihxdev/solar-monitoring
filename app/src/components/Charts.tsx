@@ -14,12 +14,24 @@ import {
 import type { HistoryResponse, VoltageResponse, ThresholdEntry, Reading } from "../api";
 import { practicalSocPct, voltageForPracticalSoc } from "../batteryModel";
 import { C, FONT } from "../theme";
-import { clockTime, fullTime, num, jakartaMidnightMs, hoursForRange } from "../format";
+import {
+  clockTime,
+  fullTime,
+  num,
+  jakartaMidnightMs,
+  jakartaMidnightMsForDate,
+  hoursForRange,
+  offsetDate,
+  formatDayShort,
+  todayJkt,
+} from "../format";
 import type { RangeKey } from "../format";
 
 interface Props {
   range: RangeKey;
   setRange: (r: RangeKey) => void;
+  chartDate: string;
+  setChartDate: (d: string) => void;
   history: HistoryResponse | undefined;
   voltage: VoltageResponse | undefined;
   voltageThresholds: ThresholdEntry[];
@@ -32,7 +44,6 @@ const RANGES: { key: RangeKey; label: string; title?: string }[] = [
   { key: "1d", label: "1D" },
   { key: "3d", label: "3D" },
   { key: "1w", label: "1W" },
-  { key: "today", label: "Today", title: "Current day from midnight" },
 ];
 
 const AXIS = {
@@ -897,13 +908,20 @@ function MetricChart({
 export default function Charts({
   range,
   setRange,
+  chartDate,
+  setChartDate,
   history,
   voltage,
   voltageThresholds,
   latest,
 }: Props) {
-  const hours = hoursForRange(range);
-  const rows: Row[] = useMemo(
+  const today = todayJkt();
+  const isChartToday = chartDate === today;
+  const canGoNext = !isChartToday;
+
+  // All points returned by the API (may span more hours than the visible window for
+  // historical dates, since we over-fetch to ensure coverage).
+  const rawRows: Row[] = useMemo(
     () =>
       (history?.points ?? []).map((p) => ({
         t: p.polled_at * 1000,
@@ -927,7 +945,36 @@ export default function Charts({
   );
 
   const serverNow = (history?.server_now ?? Date.now() / 1000) * 1000;
-  const windowMs = hours * 3600 * 1000;
+
+  // The end of the selected chart date (server-now for today, midnight of next day for past dates)
+  const chartEndMs = isChartToday
+    ? serverNow
+    : jakartaMidnightMsForDate(offsetDate(chartDate, 1));
+
+  // Window duration: for a past "today" range treat it as a full 24-hour day
+  const rangeWindowMs = range === "today" && !isChartToday
+    ? 24 * 3600_000
+    : hoursForRange(range) * 3600_000;
+
+  // Visible time domain — computed before filtering so rawRows[0].t can inform the live left edge.
+  const domain = useMemo<[number, number]>(() => {
+    let domainStart: number;
+    if (range === "today") {
+      domainStart = isChartToday ? jakartaMidnightMs() : jakartaMidnightMsForDate(chartDate);
+    } else {
+      const naturalStart = chartEndMs - rangeWindowMs;
+      domainStart = isChartToday && rawRows.length
+        ? Math.min(rawRows[0].t, naturalStart)
+        : naturalStart;
+    }
+    return [domainStart, chartEndMs];
+  }, [range, rawRows, chartDate, chartEndMs, rangeWindowMs, isChartToday]);
+
+  // Rows clipped to the visible window so Recharts never renders out-of-domain data.
+  const rows = useMemo(
+    () => rawRows.filter((r) => r.t >= domain[0] && r.t <= domain[1]),
+    [rawRows, domain]
+  );
 
   const voltageSeries = useMemo<VoltPoint[]>(
     () =>
@@ -966,24 +1013,27 @@ export default function Charts({
         });
       }
 
-      const points: Row[] = voltageSeries.map((p) => ({
-        t: p.t,
-        soc: null,
-        pv: null,
-        load: null,
-        loadW: 0,
-        gridV: null,
-        pvToLoad: 0,
-        batteryToLoad: 0,
-        gridToLoad: 0,
-        pvToLoadW: 0,
-        pvToChargeW: 0,
-        battToLoadW: 0,
-        gridToLoadW: 0,
-        v: p.v,
-        practicalSoc: null,
-        curveGuideV: null,
-      }));
+      // Voltage-only fallback (no telemetry rows): clip voltage series to domain too.
+      const points: Row[] = voltageSeries
+        .filter((p) => p.t >= domain[0] && p.t <= domain[1])
+        .map((p) => ({
+          t: p.t,
+          soc: null,
+          pv: null,
+          load: null,
+          loadW: 0,
+          gridV: null,
+          pvToLoad: 0,
+          batteryToLoad: 0,
+          gridToLoad: 0,
+          pvToLoadW: 0,
+          pvToChargeW: 0,
+          battToLoadW: 0,
+          gridToLoadW: 0,
+          v: p.v,
+          practicalSoc: null,
+          curveGuideV: null,
+        }));
 
       const lastPoint = points[points.length - 1];
       const latestV = latest?.battery_voltage ?? lastPoint?.v ?? null;
@@ -1012,7 +1062,7 @@ export default function Charts({
       }
       return points;
     },
-    [latest?.battery_voltage, rows, serverNow, voltageSeries]
+    [latest?.battery_voltage, rows, serverNow, voltageSeries, domain]
   );
 
   const batteryRows = useMemo(
@@ -1034,16 +1084,6 @@ export default function Charts({
     [voltRows]
   );
 
-  const domain = useMemo<[number, number]>(() => {
-    const domainStart =
-      range === "today"
-        ? jakartaMidnightMs()
-        : rows.length
-          ? Math.min(rows[0].t, serverNow - windowMs)
-          : serverNow - windowMs;
-    return [domainStart, serverNow];
-  }, [range, rows, serverNow, windowMs]);
-
   const voltDomain = useMemo<
     [number | ((v: number) => number), number | ((v: number) => number)] | undefined
   >(() => {
@@ -1061,29 +1101,72 @@ export default function Charts({
 
   return (
     <section className="mt-6 animate-[fadein_0.5s_ease_both]">
-      <div className="mb-2.5 flex items-baseline justify-between gap-3 sm:mb-3 sm:gap-4">
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 sm:mb-3">
         <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
           <LineChart size={14} strokeWidth={1.8} /> Trends
         </h2>
-        <div className="inline-flex overflow-hidden rounded-card border border-line">
-          {RANGES.map((r) => (
+        <div className="inline-flex items-center gap-2">
+          {/* Range window buttons — only meaningful when viewing live (today) data.
+              Clicking one resets the date back to today. */}
+          <div className="inline-flex overflow-hidden rounded-card border border-line">
+            {RANGES.map((r) => (
+              <button
+                key={r.key}
+                className={`border-r border-line px-2 py-1.5 font-mono text-xs transition-colors last:border-r-0 sm:px-2.5 ${
+                  isChartToday && range === r.key
+                    ? "bg-panel-hi text-solar"
+                    : "bg-panel text-dim hover:border-line-hi hover:text-text"
+                }`}
+                title={r.title}
+                onClick={() => {
+                  setRange(r.key);
+                  setChartDate(today); // always jump back to live when a range is chosen
+                }}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Separator */}
+          <div className="h-5 w-px bg-line" />
+
+          {/* Date navigator — arrows always clickable; date text fades when not driving the view. */}
+          <div className="inline-flex items-center gap-1">
             <button
-              key={r.key}
-              className={`border-r border-line py-1.5 font-mono text-xs transition-colors last:border-r-0 ${
-                r.key === "today" ? "px-2.5 sm:px-3" : "px-2 sm:px-2.5"
-              } ${
-                range === r.key
-                  ? r.key === "today"
-                    ? "bg-panel-hi text-charge"
-                    : "bg-panel-hi text-solar"
-                  : "bg-panel text-dim hover:border-line-hi hover:text-text"
-              }`}
-              title={r.title}
-              onClick={() => setRange(r.key)}
+              className="grid h-6.5 w-6.5 cursor-pointer place-items-center rounded-card border border-line bg-panel p-0 text-base leading-none text-dim transition-colors hover:border-line-hi hover:text-text"
+              onClick={() => {
+                setChartDate(offsetDate(chartDate, -1));
+                setRange("today"); // past-day view is always full-day
+              }}
+              title="Previous day"
             >
-              {r.label}
+              ‹
             </button>
-          ))}
+            <span
+              className="inline-flex min-w-14 items-center justify-center font-mono text-xs tabular-nums transition-opacity"
+              style={{ color: isChartToday ? C.charge : C.textDim, opacity: range !== "today" ? 0.45 : 1 }}
+            >
+              {formatDayShort(chartDate)}
+            </span>
+            <button
+              className={`grid h-6.5 w-6.5 place-items-center rounded-card border bg-panel p-0 text-base leading-none transition-colors ${
+                !canGoNext
+                  ? "cursor-default border-line text-dim opacity-30"
+                  : "cursor-pointer border-line text-dim hover:border-line-hi hover:text-text"
+              }`}
+              onClick={() => {
+                if (!canGoNext) return;
+                const next = offsetDate(chartDate, 1);
+                setChartDate(next);
+                if (next !== today) setRange("today"); // still a past day → full-day view
+              }}
+              title="Next day"
+              disabled={!canGoNext}
+            >
+              ›
+            </button>
+          </div>
         </div>
       </div>
 
