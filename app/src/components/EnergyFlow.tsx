@@ -1,5 +1,5 @@
 import type { Reading, Summary, ThresholdEntry } from "../api";
-import { estimatePracticalEta, practicalBattery } from "../batteryModel";
+import { estimatePracticalEta, medianVoltage, practicalBattery } from "../batteryModel";
 import { deriveFlows, FLOW_MIN_KW } from "../energy";
 import { watts, powerKw, num } from "../format";
 import { C, statusColor, statusLabel } from "../theme";
@@ -48,7 +48,20 @@ export default function EnergyFlow({
 }: Props) {
   const f = deriveFlows(latest);
   const switchT = socThresholds.find((t) => t.id === "soc_to_mains");
-  const practical = practicalBattery(latest, voltageThresholds);
+  // Smooth the voltage over a trailing window before mapping to practical SOC,
+  // so the displayed gauge does not jump on 0.2V steps / load transients.
+  // The raw pack voltage is still shown unsmoothed on the ring metric below.
+  const smoothedVoltage = medianVoltage(
+    [
+      ...history.map((r) => ({ t: r.polled_at, v: r.battery_voltage })),
+      ...(latest ? [{ t: latest.polled_at, v: latest.battery_voltage }] : []),
+    ],
+    latest?.polled_at,
+  );
+  const practical = practicalBattery(
+    latest && smoothedVoltage != null ? { ...latest, battery_voltage: smoothedVoltage } : latest,
+    voltageThresholds,
+  );
   const eta = estimatePracticalEta(history, latest, voltageThresholds);
 
   const socRange =
@@ -58,13 +71,17 @@ export default function EnergyFlow({
 
   // Compact ETA: drop the leading "~"; target is expressed on the practical SOC guide.
   const etaCompact = eta ? eta.label.replace(/^~/, "") : null;
-  const batteryCaps = etaCompact
-    ? [`ETA ${etaCompact}`]
+  const baseCap = etaCompact
+    ? `ETA ${etaCompact}`
     : switchT
-      ? [practical.stateLabel]
+      ? practical.stateLabel
       : socRange
-        ? [`Range ${socRange}`]
-        : [];
+        ? `Range ${socRange}`
+        : null;
+  // Surface the smoothed (15-min median) pack voltage that the practical SOC %
+  // is derived from, so it's clear the ring isn't computed off the raw reading.
+  const smoothedCap = smoothedVoltage != null ? `SOC from ${num(smoothedVoltage, 1)}V avg` : null;
+  const batteryCaps = [baseCap, smoothedCap].filter((c): c is string => Boolean(c));
 
   const solarActive = (latest?.pv_power ?? 0) > 5;
   const loadActive = f.loadKw > FLOW_MIN_KW;

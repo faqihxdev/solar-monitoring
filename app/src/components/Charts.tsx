@@ -12,7 +12,12 @@ import {
   YAxis,
 } from "recharts";
 import type { HistoryResponse, VoltageResponse, ThresholdEntry, Reading } from "../api";
-import { practicalSocPct, voltageForPracticalSoc } from "../batteryModel";
+import {
+  medianVoltage,
+  practicalSocPct,
+  voltageForPracticalSoc,
+  PRACTICAL_SOC_SMOOTHING_MINUTES,
+} from "../batteryModel";
 import { C, FONT } from "../theme";
 import {
   clockTime,
@@ -1071,12 +1076,27 @@ export default function Charts({
       const minT = voltRows[0].t;
       const maxT = voltRows[voltRows.length - 1].t;
       const span = Math.max(1, maxT - minT);
-      return voltRows.map((r) => {
+      const windowMs = PRACTICAL_SOC_SMOOTHING_MINUTES * 60 * 1000;
+      return voltRows.map((r, i) => {
         // "Pretend" hidden SOC axis: peg 0% -> 100% linearly across the visible time window.
         const windowSoc = ((r.t - minT) / span) * 100;
+        // Trailing 15-min median voltage so the plotted line matches the smoothed gauge.
+        const lo = r.t - windowMs;
+        const vals: number[] = [];
+        for (let j = i; j >= 0 && voltRows[j].t >= lo; j--) {
+          const vj = voltRows[j].v;
+          if (vj != null && Number.isFinite(vj)) vals.push(vj);
+        }
+        let smoothedV = r.v;
+        if (vals.length) {
+          vals.sort((a, b) => a - b);
+          const mid = Math.floor(vals.length / 2);
+          smoothedV =
+            vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+        }
         return {
           ...r,
-          practicalSoc: practicalSocPct(r.v),
+          practicalSoc: practicalSocPct(smoothedV),
           curveGuideV: voltageForPracticalSoc(windowSoc),
         };
       });
@@ -1097,7 +1117,18 @@ export default function Charts({
 
   const cur = (v: number | null | undefined, d: number) =>
     v == null ? "—" : num(v, d);
-  const latestPracticalSoc = practicalSocPct(latest?.battery_voltage);
+  // Displayed "current" practical SOC uses a trailing-median voltage to match
+  // the smoothed gauge; the plotted trend line stays per-sample (unsmoothed).
+  const smoothedLatestVoltage = medianVoltage(
+    [
+      ...(voltage?.points ?? []).map((p) => ({ t: p.sampled_at, v: p.battery_voltage })),
+      ...(latest ? [{ t: latest.polled_at, v: latest.battery_voltage }] : []),
+    ],
+    latest?.polled_at,
+  );
+  const latestPracticalSoc = practicalSocPct(
+    smoothedLatestVoltage ?? latest?.battery_voltage,
+  );
 
   return (
     <section className="mt-6 animate-[fadein_0.5s_ease_both]">

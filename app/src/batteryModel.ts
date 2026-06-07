@@ -44,10 +44,19 @@ function thresholdValue(thresholds: ThresholdEntry[], id: string): number | null
 // Fixed operational LiFePO4 guide for the 24V pack. This deliberately avoids
 // mode switching because charge/discharge telemetry can be noisy and reboundy.
 // Practical 0% is anchored at A4 / recommended low-voltage cutoff.
+//
+// The logistic midpoint is the steep ("near-vertical" on a SOC-vs-voltage plot)
+// part of the curve and must sit on the real discharge plateau. Measured from
+// ~3 days of battery-only discharge telemetry, ~65% of delivered energy lives
+// between 25.0-26.0V (center ~25.4V), with fast surface-charge drop above
+// ~26.2V and a fast knee below ~24.8V. The midpoint is therefore anchored at
+// 25.4V rather than the cell-resting ~26.35V.
+//
+// Keep these constants in sync with app/server/batteryMath.ts.
 const PRACTICAL_SOC_EMPTY_V = 22.4;
 const PRACTICAL_SOC_FULL_V = 27.2;
 const PRACTICAL_SOC_LOGISTIC_K = 1.4;
-const PRACTICAL_SOC_LOGISTIC_MIDPOINT_V = 26.35;
+const PRACTICAL_SOC_LOGISTIC_MIDPOINT_V = 25.4;
 
 export interface PracticalSocAnchor {
   voltage: number;
@@ -106,6 +115,43 @@ export function practicalSocPct(voltage: number | null | undefined): number | nu
   const empty = rawPracticalSoc(PRACTICAL_SOC_EMPTY_V);
   const full = rawPracticalSoc(PRACTICAL_SOC_FULL_V);
   return clampPct(((rawPracticalSoc(voltage) - empty) / (full - empty)) * 100);
+}
+
+// Trailing window used to smooth the *displayed* practical SOC. Because the
+// curve is steep across the operating plateau, raw 0.2V quantization steps and
+// brief load-sag transients translate into visible % jumps. We smooth the
+// voltage (the physical input) before the nonlinear mapping, using a median so
+// momentary load surges/dips do not yank the gauge.
+export const PRACTICAL_SOC_SMOOTHING_MINUTES = 15;
+
+export interface VoltageSamplePoint {
+  t: number;
+  v: number | null | undefined;
+}
+
+export function medianVoltage(
+  samples: ReadonlyArray<VoltageSamplePoint>,
+  anchorSec: number | null | undefined,
+  windowMinutes: number = PRACTICAL_SOC_SMOOTHING_MINUTES
+): number | null {
+  let anchor = anchorSec ?? null;
+  if (anchor == null) {
+    for (const s of samples) {
+      if (s.v != null && Number.isFinite(s.v)) anchor = s.t;
+    }
+  }
+  if (anchor == null) return null;
+  const cutoff = anchor - windowMinutes * 60;
+  const vals: number[] = [];
+  for (const s of samples) {
+    if (s.t < cutoff || s.t > anchor + 120) continue;
+    if (s.v == null || !Number.isFinite(s.v)) continue;
+    vals.push(s.v);
+  }
+  if (!vals.length) return null;
+  vals.sort((a, b) => a - b);
+  const mid = Math.floor(vals.length / 2);
+  return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
 }
 
 export function voltageForPracticalSoc(soc: number | null | undefined): number | null {
@@ -196,7 +242,18 @@ export function estimatePracticalEta(
   latest: Reading | null | undefined,
   thresholds: ThresholdEntry[]
 ): PracticalEta | null {
-  const voltage = latest?.battery_voltage ?? null;
+  // Use the same trailing median voltage as the gauge so the ETA's starting
+  // SOC doesn't jump with the 0.2V quantization steps.
+  const smoothed = medianVoltage(
+    [
+      ...history.map((p) => ({ t: p.polled_at, v: p.battery_voltage })),
+      ...(latest?.battery_voltage != null && latest?.polled_at != null
+        ? [{ t: latest.polled_at, v: latest.battery_voltage }]
+        : []),
+    ],
+    latest?.polled_at,
+  );
+  const voltage = smoothed ?? latest?.battery_voltage ?? null;
   const { a6, a7 } = batteryThresholds(thresholds);
   if (voltage == null || a6 == null || a7 == null || history.length < 4) return null;
   const practicalSoc = practicalSocPct(voltage);
