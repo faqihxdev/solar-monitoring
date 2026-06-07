@@ -14,7 +14,12 @@ import {
   useVoltage,
 } from "./hooks";
 import type { RangeKey } from "./format";
-import { hoursForRange } from "./format";
+import {
+  hoursForRange,
+  todayJkt,
+  offsetDate,
+  jakartaMidnightMsForDate,
+} from "./format";
 
 function withLiveControlValues(thresholds: ThresholdEntry[], controls: ControlEntry[] | undefined): ThresholdEntry[] {
   if (!controls?.length) return thresholds;
@@ -27,9 +32,27 @@ function withLiveControlValues(thresholds: ThresholdEntry[], controls: ControlEn
   });
 }
 
+function chartFetchHours(range: RangeKey, chartDate: string): number {
+  const today = todayJkt();
+  if (chartDate === today) return hoursForRange(range);
+
+  const nextDay = offsetDate(chartDate, 1);
+  const endOfDayMs = jakartaMidnightMsForDate(nextDay);
+  const rangeMs = range === "today" ? 24 * 3600_000 : hoursForRange(range) * 3600_000;
+  const domainStartMs = range === "today"
+    ? jakartaMidnightMsForDate(chartDate)
+    : endOfDayMs - rangeMs;
+  return Math.ceil((Date.now() - domainStartMs) / 3600_000) + 2;
+}
+
 export default function App() {
   const [range, setRange] = useState<RangeKey>("12h");
-  const hours = hoursForRange(range);
+  // Shared date used by both Trends and Daily Energy.
+  // Navigating either section's date arrows syncs both.
+  // Clicking a range button (6H, 12H…) resets to today.
+  const [date, setDate] = useState(() => todayJkt());
+
+  const hours = chartFetchHours(range, date);
 
   const config = useConfig();
   const summary = useSummary();
@@ -87,13 +110,15 @@ export default function App() {
           <Charts
             range={range}
             setRange={setRange}
+            chartDate={date}
+            setChartDate={setDate}
             history={history.data}
             voltage={voltage.data}
             voltageThresholds={voltageThresholds}
             latest={latest}
           />
 
-          <DailyEnergy />
+          <DailyEnergy date={date} setDate={setDate} />
 
           <ControlCenter voltageThresholds={voltageThresholds} />
         </>
