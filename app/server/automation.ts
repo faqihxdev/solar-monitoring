@@ -1,4 +1,4 @@
-import { practicalSocPct, voltageForPracticalSoc } from "./batteryMath";
+import { medianVoltage, practicalSocPct, voltageForPracticalSoc } from "./batteryMath";
 import { ControlService } from "./controlService";
 import { TelemetryStore, type AutomationStateRecord } from "./store";
 import {
@@ -15,7 +15,7 @@ import type { JsonRecord } from "./types";
 
 const DEFAULT_TARGET_SOC = 90;
 const DEFAULT_TARGET_TIME = "17:15";
-const DEFAULT_CHECK_INTERVAL_SECONDS = 15 * 60;
+const DEFAULT_CHECK_INTERVAL_SECONDS = 5 * 60;
 const TARGET_MARGIN_PCT = 2;
 const BEHIND_MARGIN_PCT = 3;
 const TARGET_BASE_SOC = 25;
@@ -23,6 +23,11 @@ const OPERATION_START_TIME = "06:30";
 const SOLAR_CURVE_POWER = 1.6;
 const SOLAR_CURVE_STEPS = 96;
 const BAND_HYSTERESIS_SINGLE_V = 0.1;
+// Cap the expected-SOC floor so the applied A6 (return-to-inverter) stays at a
+// pack voltage the pack actually reaches in practice (~26.8 V). Without this an
+// over-ambitious target pushes A6 to 27 V, which the pack rarely hits, so it
+// never returns to inverter and hoards on grid (wasting surplus PV).
+const ACHIEVABLE_FLOOR_CAP_PACK_V = 26.6;
 
 interface ProtectionBand {
   a6: number;
@@ -195,13 +200,43 @@ export class AutomationEngine {
     return saved;
   }
 
+  // Trailing-median pack voltage so practical SOC decisions match the smoothed
+  // gauge and are not driven by single quantized/transient voltage samples.
+  private smoothedVoltage(latest: JsonRecord | null): number | null {
+    const samples = this.readStore
+      .voltageHistory(this.deviceSn, 1)
+      .map((r) => ({
+        t: Number(r.sampled_at),
+        v: r.battery_voltage == null ? null : Number(r.battery_voltage),
+      }));
+    if (latest?.battery_voltage != null && latest?.polled_at != null) {
+      samples.push({ t: Number(latest.polled_at), v: Number(latest.battery_voltage) });
+    }
+    const anchor = latest?.polled_at != null ? Number(latest.polled_at) : null;
+    return medianVoltage(samples, anchor);
+  }
+
+  // The band actively written while preserving: A6/A7 track the *expected SOC
+  // for the current time* (the solar-weighted desired curve), not the eventual
+  // target. The inverter then runs the load off battery+PV whenever the pack is
+  // above this floor, and falls back to grid+charge below it. As the day
+  // progresses the floor rises toward the target, so the battery is protected
+  // progressively and arrives at target by target_time. Capped so A6 stays at a
+  // reachable pack voltage.
+  private trackingBand(desiredNow: number | null): ProtectionBand | null {
+    if (desiredNow == null) return null;
+    const floorVoltage = voltageForPracticalSoc(desiredNow);
+    if (floorVoltage == null) return null;
+    return targetProtectionBand(Math.min(floorVoltage, ACHIEVABLE_FLOOR_CAP_PACK_V));
+  }
+
   status(): AutomationStatus {
     const state = this.getState();
     const latest = this.readStore.latestReadings(this.deviceSn);
-    const practicalSoc = practicalSocPct(Number(latest?.battery_voltage ?? NaN));
+    const practicalSoc = practicalSocPct(this.smoothedVoltage(latest));
     const targetVoltage = voltageForPracticalSoc(state.target_practical_soc);
-    const band = targetProtectionBand(targetVoltage);
     const desiredNow = this.desiredPracticalSocNow(state);
+    const band = this.trackingBand(desiredNow) ?? targetProtectionBand(targetVoltage);
     return {
       enabled: Boolean(state.enabled),
       state,
@@ -221,7 +256,7 @@ export class AutomationEngine {
   async evaluate(reason = "Scheduled automation check"): Promise<AutomationStatus> {
     const state = this.getState();
     const latest = this.readStore.latestReadings(this.deviceSn);
-    const voltage = latest?.battery_voltage == null ? null : Number(latest.battery_voltage);
+    const voltage = this.smoothedVoltage(latest);
     const practicalSoc = practicalSocPct(voltage);
     const targetVoltage = voltageForPracticalSoc(state.target_practical_soc);
     const targetBand = targetProtectionBand(targetVoltage);
@@ -289,7 +324,8 @@ export class AutomationEngine {
       );
     }
 
-    if (voltage == null || practicalSoc == null || targetVoltage == null || targetBand == null || desiredNow == null) {
+    const trackBand = this.trackingBand(desiredNow);
+    if (voltage == null || practicalSoc == null || targetVoltage == null || trackBand == null || desiredNow == null) {
       return this.recordDecision(
         state,
         "waiting for fresher telemetry/control read",
@@ -299,65 +335,30 @@ export class AutomationEngine {
           latest,
           practical_soc: practicalSoc,
           target_voltage: targetVoltage,
-          target_a6: targetBand?.a6 ?? null,
-          target_a7: targetBand?.a7 ?? null,
-          target_band_capped: Boolean(targetBand?.capped),
-        },
-      );
-    }
-
-    const targetReached = practicalSoc >= state.target_practical_soc - TARGET_MARGIN_PCT;
-    if (targetReached) {
-      return this.applyProtectionBand(
-        state,
-        targetBand,
-        "target reached, holding protection band",
-        `${reason}: target practical SOC is satisfied; holding A6/A7 band until ${state.target_time}`,
-        nextCheckAt,
-        latest,
-        practicalSoc,
-        targetVoltage,
-        desiredNow,
-      );
-    }
-
-    const behind = practicalSoc < desiredNow - BEHIND_MARGIN_PCT;
-    if (!behind) {
-      if (state.active_override) {
-        return this.applyProtectionBand(
-          state,
-          targetBand,
-          "tracking target, holding protection band",
-          `${reason}: practical SOC is on track; keeping A6/A7 band active until ${state.target_time}`,
-          nextCheckAt,
-          latest,
-          practicalSoc,
-          targetVoltage,
-          desiredNow,
-        );
-      }
-      return this.recordDecision(
-        state,
-        "tracking target",
-        `Practical SOC ${Math.round(practicalSoc)}% is on track for ${state.target_time}`,
-        nextCheckAt,
-        {
-          latest,
-          practical_soc: practicalSoc,
-          target_voltage: targetVoltage,
-          target_a6: targetBand.a6,
-          target_a7: targetBand.a7,
-          target_band_capped: targetBand.capped,
+          target_a6: trackBand?.a6 ?? null,
+          target_a7: trackBand?.a7 ?? null,
+          target_band_capped: Boolean(trackBand?.capped),
           desired_practical_soc_now: desiredNow,
         },
       );
     }
 
+    // Single continuously-adjusted band: A6/A7 track the expected-SOC-for-now
+    // floor. The inverter runs the load off battery+PV above the floor and only
+    // falls back to grid (+charges) below it, so surplus PV is used instead of
+    // floated, while the rising floor still guarantees the evening target.
+    const belowFloor = practicalSoc < desiredNow - BEHIND_MARGIN_PCT;
+    const atTarget = practicalSoc >= state.target_practical_soc - TARGET_MARGIN_PCT;
+    const decision = belowFloor
+      ? "below expected floor, charging on grid+PV"
+      : atTarget
+        ? "at target, using surplus above floor"
+        : "tracking expected-SOC floor";
     return this.applyProtectionBand(
       state,
-      targetBand,
-      "behind target, preserving battery",
-      `${reason}: behind target, preserving battery with A6/A7 band until practical SOC reaches ${state.target_practical_soc}%`,
+      trackBand,
+      decision,
+      `${reason}: expected SOC floor ${Math.round(desiredNow)}%; battery serves load above the floor, grid+PV recharge below it (target ${state.target_practical_soc}% by ${state.target_time})`,
       nextCheckAt,
       latest,
       practicalSoc,
@@ -368,7 +369,7 @@ export class AutomationEngine {
 
   private async restoreBaseline(state: AutomationStateRecord, reason: string): Promise<AutomationStatus> {
     const latest = this.readStore.latestReadings(this.deviceSn);
-    const practicalSoc = practicalSocPct(Number(latest?.battery_voltage ?? NaN));
+    const practicalSoc = practicalSocPct(this.smoothedVoltage(latest));
     const targetVoltage = voltageForPracticalSoc(state.target_practical_soc);
     const targetBand = targetProtectionBand(targetVoltage);
     const desiredNow = this.desiredPracticalSocNow(state);

@@ -359,7 +359,7 @@ server.listen(config.apiPort, "127.0.0.1", () => {
 });
 
 let automationRunning = false;
-const automationIntervalMs = Number(process.env.AUTOMATION_CHECK_INTERVAL_SECONDS ?? "900") * 1000;
+const automationIntervalMs = Number(process.env.AUTOMATION_CHECK_INTERVAL_SECONDS ?? "300") * 1000;
 setInterval(() => {
   if (automationRunning) return;
   automationRunning = true;
