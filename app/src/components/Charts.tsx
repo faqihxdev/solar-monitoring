@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import type { HistoryResponse, VoltageResponse, ThresholdEntry, Reading } from "../api";
 import {
-  medianVoltage,
+  meanVoltage,
   practicalSocPct,
   voltageForPracticalSoc,
   PRACTICAL_SOC_SMOOTHING_MINUTES,
@@ -306,7 +306,7 @@ const SocChartBody = memo(function SocChartBody({
           cursor={{ stroke: C.lineHi, strokeWidth: 1, strokeDasharray: "4 4" }}
         />
         <Area
-          type="stepAfter"
+          type="monotone"
           dataKey="practicalSoc"
           name="Practical SOC"
           stroke={C.battery}
@@ -1076,24 +1076,33 @@ export default function Charts({
       const minT = voltRows[0].t;
       const maxT = voltRows[voltRows.length - 1].t;
       const span = Math.max(1, maxT - minT);
-      const windowMs = PRACTICAL_SOC_SMOOTHING_MINUTES * 60 * 1000;
+      const halfWindowMs = (PRACTICAL_SOC_SMOOTHING_MINUTES * 60 * 1000) / 2;
       return voltRows.map((r, i) => {
         // "Pretend" hidden SOC axis: peg 0% -> 100% linearly across the visible time window.
         const windowSoc = ((r.t - minT) / span) * 100;
-        // Trailing 15-min median voltage so the plotted line matches the smoothed gauge.
-        const lo = r.t - windowMs;
-        const vals: number[] = [];
+        // Centered 15-min moving AVERAGE of voltage. A mean (not median) is used
+        // here on purpose: voltage is quantized to 0.2V steps, so a median just
+        // re-picks one of those discrete levels and the line stays stepped. The
+        // mean produces in-between voltages (e.g. 25.5V) that map to a smooth %.
+        const lo = r.t - halfWindowMs;
+        const hi = r.t + halfWindowMs;
+        let sum = 0;
+        let count = 0;
         for (let j = i; j >= 0 && voltRows[j].t >= lo; j--) {
           const vj = voltRows[j].v;
-          if (vj != null && Number.isFinite(vj)) vals.push(vj);
+          if (vj != null && Number.isFinite(vj)) {
+            sum += vj;
+            count += 1;
+          }
         }
-        let smoothedV = r.v;
-        if (vals.length) {
-          vals.sort((a, b) => a - b);
-          const mid = Math.floor(vals.length / 2);
-          smoothedV =
-            vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+        for (let j = i + 1; j < voltRows.length && voltRows[j].t <= hi; j++) {
+          const vj = voltRows[j].v;
+          if (vj != null && Number.isFinite(vj)) {
+            sum += vj;
+            count += 1;
+          }
         }
+        const smoothedV = count ? sum / count : r.v;
         return {
           ...r,
           practicalSoc: practicalSocPct(smoothedV),
@@ -1117,9 +1126,9 @@ export default function Charts({
 
   const cur = (v: number | null | undefined, d: number) =>
     v == null ? "—" : num(v, d);
-  // Displayed "current" practical SOC uses a trailing-median voltage to match
-  // the smoothed gauge; the plotted trend line stays per-sample (unsmoothed).
-  const smoothedLatestVoltage = medianVoltage(
+  // Displayed "current" practical SOC uses a trailing-mean voltage to match the
+  // smoothed gauge and the (centered-mean) plotted trend line.
+  const smoothedLatestVoltage = meanVoltage(
     [
       ...(voltage?.points ?? []).map((p) => ({ t: p.sampled_at, v: p.battery_voltage })),
       ...(latest ? [{ t: latest.polled_at, v: latest.battery_voltage }] : []),

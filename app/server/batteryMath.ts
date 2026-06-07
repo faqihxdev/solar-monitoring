@@ -46,7 +46,7 @@ export interface VoltageSamplePoint {
   v: number | null | undefined;
 }
 
-export function medianVoltage(
+export function meanVoltage(
   samples: ReadonlyArray<VoltageSamplePoint>,
   anchorSec: number | null | undefined,
   windowMinutes: number = PRACTICAL_SOC_SMOOTHING_MINUTES
@@ -59,16 +59,16 @@ export function medianVoltage(
   }
   if (anchor == null) return null;
   const cutoff = anchor - windowMinutes * 60;
-  const vals: number[] = [];
+  let sum = 0;
+  let count = 0;
   for (const s of samples) {
     if (s.t < cutoff || s.t > anchor + 120) continue;
     if (s.v == null || !Number.isFinite(s.v)) continue;
-    vals.push(s.v);
+    sum += s.v;
+    count += 1;
   }
-  if (!vals.length) return null;
-  vals.sort((a, b) => a - b);
-  const mid = Math.floor(vals.length / 2);
-  return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+  if (!count) return null;
+  return sum / count;
 }
 
 export function voltageForPracticalSoc(soc: number | null | undefined): number | null {

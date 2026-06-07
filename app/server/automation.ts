@@ -1,4 +1,4 @@
-import { medianVoltage, practicalSocPct, voltageForPracticalSoc } from "./batteryMath";
+import { meanVoltage, practicalSocPct, voltageForPracticalSoc } from "./batteryMath";
 import { ControlService } from "./controlService";
 import { TelemetryStore, type AutomationStateRecord } from "./store";
 import {
@@ -200,7 +200,7 @@ export class AutomationEngine {
     return saved;
   }
 
-  // Trailing-median pack voltage so practical SOC decisions match the smoothed
+  // Trailing-mean pack voltage so practical SOC decisions match the smoothed
   // gauge and are not driven by single quantized/transient voltage samples.
   private smoothedVoltage(latest: JsonRecord | null): number | null {
     const samples = this.readStore
@@ -213,7 +213,7 @@ export class AutomationEngine {
       samples.push({ t: Number(latest.polled_at), v: Number(latest.battery_voltage) });
     }
     const anchor = latest?.polled_at != null ? Number(latest.polled_at) : null;
-    return medianVoltage(samples, anchor);
+    return meanVoltage(samples, anchor);
   }
 
   // The band actively written while preserving: A6/A7 track the *expected SOC
