@@ -18,7 +18,7 @@ Restart overrides:
 
 Environment overrides:
   DESS_DEPLOY_SSH_BIN         SSH binary. Default: /mnt/c/Windows/System32/OpenSSH/ssh.exe
-  DESS_DEPLOY_SSH_HOST        SSH host alias. Default: solar-utf-sh
+  DESS_DEPLOY_SSH_HOST        SSH host alias. Default: utf-sh
   DESS_DEPLOY_REMOTE_APP_DIR  Remote app dir. Default: /opt/solar-system/app
   DESS_DEPLOY_PUBLIC_URL      Public URL. Default: https://solar.utf.sh
 EOF
@@ -204,7 +204,7 @@ ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${ROOT_DIR}/app"
 
 SSH_BIN="${DESS_DEPLOY_SSH_BIN:-/mnt/c/Windows/System32/OpenSSH/ssh.exe}"
-SSH_HOST="${DESS_DEPLOY_SSH_HOST:-solar-utf-sh}"
+SSH_HOST="${DESS_DEPLOY_SSH_HOST:-utf-sh}"
 REMOTE_APP_DIR="${DESS_DEPLOY_REMOTE_APP_DIR:-/opt/solar-system/app}"
 PUBLIC_URL="${DESS_DEPLOY_PUBLIC_URL:-https://solar.utf.sh}"
 ORIGIN_HOST_HEADER="${DESS_DEPLOY_ORIGIN_HOST_HEADER:-solar.utf.sh}"
