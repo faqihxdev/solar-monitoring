@@ -442,6 +442,13 @@ Other useful SOC fields on this device:
 | `lithium_battery_contlow` | Lithium battery to mains SOC | Switch to PLN when SOC ≤ this (15%) |
 | `lithium_battery_low_voltage_conthigh` | Set the lithium battery low voltage recovery SOC | Recovery hysteresis (20%) |
 
+Other portal control IDs to preserve exactly:
+
+| Field ID | Portal label | Notes |
+|----------|--------------|-------|
+| `current_limit` | Current Limit Setting | Portal read returned `500`; no unit is exposed in the control metadata |
+| `frequency_crtl` | Frequency | Portal typo; enum `50` = 50Hz, `60` = 60Hz |
+
 `generator_mode_setting`: enum `0` = Normal mode, `1` = Generator mode (use Normal when on PLN only).
 
 ### ZDTID 1.2 kW — Remote switch (`energy_use_modelph`) does not stick remotely

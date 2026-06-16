@@ -388,25 +388,27 @@ export class AutomationEngine {
         override_a7: null,
         override_value: null,
         next_check_at: nextCheckAt,
-        last_decision: "target reached, restoring baseline",
+        last_decision: state.enabled ? "baseline restored" : "paused cleanup complete",
         last_reason: reason,
       });
       return this.statusFromState(nextState, latest, practicalSoc, targetVoltage, desiredNow, targetBand);
     } catch (exc) {
       return this.recordDecision(
         state,
-        "cooldown/write budget exhausted",
-        `Could not restore baseline A6/A7: ${String(exc instanceof Error ? exc.message : exc)}`,
+        "cleanup restore failed",
+        `Could not restore fallback A6/A7 during automation cleanup: ${String(exc instanceof Error ? exc.message : exc)}`,
         nextCheckAt,
         {
           latest,
           practical_soc: practicalSoc,
           target_voltage: targetVoltage,
-          target_a6: targetBand?.a6 ?? null,
-          target_a7: targetBand?.a7 ?? null,
-          target_band_capped: Boolean(targetBand?.capped),
+          target_a6: baselineBand.a6,
+          target_a7: baselineBand.a7,
+          target_band_capped: false,
+          desired_practical_soc_now: desiredNow,
         },
         "failed",
+        "automation_cleanup",
       );
     }
   }
@@ -502,6 +504,7 @@ export class AutomationEngine {
     nextCheckAt: number | null,
     details: JsonRecord,
     status = "skipped",
+    action = "automation_decision",
   ): AutomationStatus {
     const nextState = this.controlStore.saveAutomationState(this.deviceSn, {
       enabled: state.enabled,
@@ -520,7 +523,7 @@ export class AutomationEngine {
     this.controlStore.addControlEvent({
       deviceSn: this.deviceSn,
       fieldId: A6_FIELD_ID,
-      action: "automation_decision",
+      action,
       actor: "automation",
       status,
       reason,
