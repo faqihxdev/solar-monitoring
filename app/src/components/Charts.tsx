@@ -64,6 +64,7 @@ const SOC_Y_DOMAIN: [number, number] = [0, 100];
 const THRESH_SHORT: Record<string, string> = {
   soc_to_mains: "SOC GRID",
   soc_resume_inverter: "SOC INV",
+  a3_float_charge: "A3 FLT",
   a7_switch_pln: "A7 GRID",
   a6_return_pln: "A6 INV",
   a5_low_recovery: "A5 REC",
