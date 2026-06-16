@@ -5,6 +5,7 @@ const A6_RETURN_FROM_PLN_V = 27.0;
 const A7_SWITCH_TO_PLN_V = 25.2;
 const A5_LOW_BATTERY_RECOVERY_V = 26.0;
 const A4_LOW_VOLTAGE_PROTECT_V = 23.4;
+const A3_FLOAT_CHARGE_V = 27.4;
 const SOC_RESUME_INVERTER_PCT = 25.0;
 const SOC_SWITCH_TO_MAINS_PCT = 15.0;
 const PACK_VOLTAGE_SCALE = 2.0;
@@ -37,6 +38,15 @@ const THRESHOLD_FIELDS: ThresholdField[] = [
     color: "#b85c2a",
     group: "battery_soc",
     scale: 1,
+  },
+  {
+    fieldId: "bat_single_battery_float_charge_setting",
+    catalogId: "a3_float_charge",
+    label: "Float charge [A3]",
+    hint: "A3 bat_single_battery_float_charge_setting (x2 = 24 V pack) - float/maintenance charge target",
+    color: "#5f8fd6",
+    group: "battery_voltage",
+    scale: PACK_VOLTAGE_SCALE,
   },
   {
     fieldId: "bat_power_supply_value",
@@ -79,6 +89,7 @@ const THRESHOLD_FIELDS: ThresholdField[] = [
 const DEFAULTS: Record<string, number> = {
   soc_resume_inverter: SOC_RESUME_INVERTER_PCT,
   soc_to_mains: SOC_SWITCH_TO_MAINS_PCT,
+  a3_float_charge: A3_FLOAT_CHARGE_V,
   a6_return_pln: A6_RETURN_FROM_PLN_V,
   a5_low_recovery: A5_LOW_BATTERY_RECOVERY_V,
   a7_switch_pln: A7_SWITCH_TO_PLN_V,

@@ -33,6 +33,17 @@ function paramString(params: Record<string, string>, webStyle = false): string {
     .replace(/%29/g, ")");
 }
 
+function normalizeControlWriteValue(fieldId: string, value: string): string {
+  const raw = String(value ?? "").trim();
+  // Dessmonitor's write endpoint expects charging gear as 0..6,
+  // while reads and UI labels come back as C0..C6.
+  if (fieldId === "charging_gear_setting") {
+    const match = raw.toUpperCase().match(/^C([0-6])$/);
+    if (match) return match[1];
+  }
+  return raw;
+}
+
 export class DessmonitorClient {
   token: string | null = null;
   secret: string | null = null;
@@ -126,7 +137,7 @@ export class DessmonitorClient {
       devaddr: args.devaddr,
       sn: args.sn,
       id: args.fieldId,
-      val: args.value,
+      val: normalizeControlWriteValue(args.fieldId, args.value),
     });
   }
 
