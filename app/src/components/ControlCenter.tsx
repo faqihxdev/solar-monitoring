@@ -40,6 +40,10 @@ function draftValue(control: ControlEntry, drafts: Record<string, string>) {
   return drafts[control.id] ?? control.raw_value ?? "";
 }
 
+function rawControlValue(control: ControlEntry) {
+  return control.raw_value ?? "";
+}
+
 const TARGET_BASE_SOC = 25;
 const OPERATION_START_MINUTES = 6 * 60 + 30;
 
@@ -70,6 +74,10 @@ function targetSchedule(targetSoc: string, targetTime: string): string {
 function automationExplanation(status: AutomationStatus | undefined, draftEnabled: boolean, targetSoc: string, targetTime: string) {
   const savedEnabled = Boolean(status?.enabled);
   const targetLabel = `${targetSoc || "—"}% by ${targetTime || "—"}`;
+  const activeOverride = Boolean(status?.state.active_override);
+  const decision = String(status?.decision ?? "").toLowerCase();
+  const reason = String(status?.reason ?? "");
+  const reasonLower = reason.toLowerCase();
   const draftFact =
     savedEnabled === draftEnabled
       ? `Saved mode: ${savedEnabled ? "ON" : "OFF"}`
@@ -78,14 +86,33 @@ function automationExplanation(status: AutomationStatus | undefined, draftEnable
         : "Unsaved change: will turn OFF after Save target";
 
   if (!savedEnabled) {
+    if (activeOverride) {
+      const restoreBlocked =
+        decision.includes("cleanup restore failed") ||
+        decision.includes("cooldown") ||
+        decision.includes("budget") ||
+        reasonLower.includes("could not restore fallback") ||
+        reasonLower.includes("could not restore baseline");
+      if (restoreBlocked) {
+        return {
+          title: "Paused: fallback restore blocked",
+          body:
+            `Target chasing is off, but automation still owns a previous A6/A7 override and could not restore the fallback band. ${reason || "Check the action timeline for the blocked cleanup write."} ${draftFact}.`,
+        };
+      }
+      return {
+        title: "Paused: restoring fallback",
+        body:
+          `Target chasing is off. The backend may write A6/A7 only to clear the previous automation override and return to the fallback band. ${draftFact}.`,
+      };
+    }
     return {
       title: "Paused: no automatic writes",
       body:
-        `Automation is not trying to reach a target. If it previously owned a raised band, it restores the fallback band once. ${draftFact}.`,
+        `Automation is not trying to reach a target and does not own an A6/A7 override. ${draftFact}.`,
     };
   }
 
-  const decision = String(status?.decision ?? "").toLowerCase();
   if (decision.includes("before operation start")) {
     return {
       title: "Waiting for start time",
@@ -169,6 +196,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
   const mutations = useControlMutations();
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [dirtyDrafts, setDirtyDrafts] = useState<Record<string, boolean>>({});
   const [enabled, setEnabled] = useState(false);
   const [targetSoc, setTargetSoc] = useState("95");
   const [targetTime, setTargetTime] = useState("17:15");
@@ -179,16 +207,66 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   useEffect(() => {
-    const next = { ...drafts };
-    let changed = false;
-    for (const control of controls.data?.controls ?? []) {
-      if (next[control.id] == null && control.raw_value != null) {
-        next[control.id] = control.raw_value;
-        changed = true;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const control of controls.data?.controls ?? []) {
+        if (dirtyDrafts[control.id] || control.raw_value == null) continue;
+        if (next[control.id] !== control.raw_value) {
+          next[control.id] = control.raw_value;
+          changed = true;
+        }
       }
-    }
-    if (changed) setDrafts(next);
-  }, [controls.data]); // eslint-disable-line react-hooks/exhaustive-deps
+      return changed ? next : prev;
+    });
+  }, [controls.data?.controls, dirtyDrafts]);
+
+  function clearDirtyDrafts(ids: string[]) {
+    setDirtyDrafts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of ids) {
+        if (next[id]) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }
+
+  function setReadDrafts(nextControls: ControlEntry[]) {
+    setDrafts((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const control of nextControls) {
+        const value = rawControlValue(control);
+        if (next[control.id] !== value) {
+          next[control.id] = value;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    clearDirtyDrafts(nextControls.map((control) => control.id));
+  }
+
+  function setDraft(control: ControlEntry, value: string) {
+    setDrafts((prev) => ({ ...prev, [control.id]: value }));
+    setDirtyDrafts((prev) => {
+      const changed = value !== rawControlValue(control);
+      if (changed) return prev[control.id] ? prev : { ...prev, [control.id]: true };
+      if (!prev[control.id]) return prev;
+      const next = { ...prev };
+      delete next[control.id];
+      return next;
+    });
+  }
+
+  function setWrittenDraft(controlId: string, value: string | null) {
+    setDrafts((prev) => ({ ...prev, [controlId]: value ?? "" }));
+    clearDirtyDrafts([controlId]);
+  }
 
   useEffect(() => {
     const state = automation.data?.automation.state;
@@ -222,10 +300,13 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
 
   const status = automation.data?.automation;
   const savedEnabled = Boolean(status?.enabled);
+  const cleanupPending = !savedEnabled && Boolean(status?.state.active_override);
   const explain = automationExplanation(status, enabled, targetSoc, targetTime);
   const scheduleLabel = targetSchedule(targetSoc, targetTime);
   const nextEvaluation =
-    !savedEnabled
+    cleanupPending
+      ? "cleanup pending"
+      : !savedEnabled
       ? "paused"
       : status?.next_check_at == null
         ? "waiting"
@@ -254,13 +335,15 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
   const writingId = mutations.write.isPending ? mutations.write.variables?.id ?? null : null;
   const readingId = mutations.readOne.isPending ? mutations.readOne.variables ?? null : null;
 
-  function setDraft(id: string, value: string) {
-    setDrafts((prev) => ({ ...prev, [id]: value }));
-  }
-
   function readControl(control: ControlEntry) {
     mutations.readOne.mutate(control.id, {
-      onSuccess: () => setFeedback({ tone: "ok", text: `Read ${control.label} from inverter.` }),
+      onSuccess: (data) => {
+        setReadDrafts([data.control]);
+        setFeedback({
+          tone: "ok",
+          text: `Read ${control.label} from inverter: ${data.control.raw_value ?? "—"}.`,
+        });
+      },
       onError: (error) =>
         setFeedback({ tone: "bad", text: `Read ${control.label} failed: ${errorText(error)}` }),
     });
@@ -268,8 +351,10 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
 
   function readAll() {
     mutations.readAll.mutate(undefined, {
-      onSuccess: (data) =>
-        setFeedback({ tone: "ok", text: `Refreshed ${data.controls.length} controls from inverter.` }),
+      onSuccess: (data) => {
+        setReadDrafts(data.controls);
+        setFeedback({ tone: "ok", text: `Refreshed ${data.controls.length} controls from inverter.` });
+      },
       onError: (error) =>
         setFeedback({ tone: "bad", text: `Read all failed: ${errorText(error)}` }),
     });
@@ -284,6 +369,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
       {
         onSuccess: (data) => {
           const result = data.result;
+          setWrittenDraft(control.id, result.verified ?? result.requested);
           if (result.status === "written") {
             setFeedback({
               tone: "ok",
@@ -405,10 +491,12 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 font-mono text-xs tracking-wide ${
                 savedEnabled
                   ? "bg-charge/10 text-charge"
+                  : cleanupPending
+                    ? "bg-solar/10 text-solar"
                   : "bg-panel-hi text-faint"
               }`}
             >
-              {savedEnabled ? "Active" : "Paused"}
+              {savedEnabled ? "Active" : cleanupPending ? "Cleanup" : "Paused"}
             </div>
           </div>
 
@@ -670,7 +758,7 @@ interface ControlGroupProps {
   title: string;
   controls: ControlEntry[];
   drafts: Record<string, string>;
-  setDraft: (id: string, value: string) => void;
+  setDraft: (control: ControlEntry, value: string) => void;
   sendControl: (control: ControlEntry) => void;
   readOne: (control: ControlEntry) => void;
   busy: boolean;
@@ -702,10 +790,12 @@ function ControlGroup({
         <div className="flex flex-col gap-2">
           {controls.map((control) => {
             const value = draftValue(control, drafts);
-            const changed = value !== (control.raw_value ?? "");
+            const changed = value !== rawControlValue(control);
             const isWriting = writingId === control.id;
             const isReading = readingId === control.id;
             const labelColor = controlLabelColors.get(control.id);
+            const enumValues = new Set((control.options ?? []).map((option) => option.value));
+            const unknownEnumValue = control.type === "enum" && value && !enumValues.has(value) ? value : null;
             return (
               <div
                 className="grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-card border border-line bg-panel-hi px-2.5 py-2 sm:px-3 lg:grid-cols-12"
@@ -757,10 +847,13 @@ function ControlGroup({
                           }}
                           aria-label={`${control.label} value`}
                           value={value}
-                          onChange={(event) => setDraft(control.id, event.target.value)}
+                          onChange={(event) => setDraft(control, event.target.value)}
                           disabled={!control.writable}
                         >
                           <option value="">Select…</option>
+                          {unknownEnumValue && (
+                            <option value={unknownEnumValue}>{unknownEnumValue} - current device value</option>
+                          )}
                           {control.options.map((option) => (
                             <option value={option.value} key={option.value}>
                               {option.label}
@@ -777,7 +870,7 @@ function ControlGroup({
                             max={control.max}
                             step={control.step}
                             value={value}
-                            onChange={(event) => setDraft(control.id, event.target.value)}
+                            onChange={(event) => setDraft(control, event.target.value)}
                             disabled={!control.writable}
                           />
                           {control.unit && (

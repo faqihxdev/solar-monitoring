@@ -135,8 +135,13 @@ async function route(
 
   if (pathname === "/api/history") {
     const hours = clamp(Number(searchParams.get("hours") ?? 24), 1, 168);
-    const maxPoints = clamp(Number(searchParams.get("max_points") ?? 900), 200, 5000);
-    const rows = samplePoints(store.history(config.sn, hours), maxPoints);
+    // Return full-resolution data by default so the chart shows every reading.
+    // Decimation only kicks in if a caller explicitly asks for a `max_points` cap.
+    const maxPointsParam = searchParams.get("max_points");
+    const fullRows = store.history(config.sn, hours);
+    const rows = maxPointsParam == null
+      ? fullRows
+      : samplePoints(fullRows, clamp(Number(maxPointsParam), 200, 50000));
     return {
       device_sn: config.sn,
       hours,
