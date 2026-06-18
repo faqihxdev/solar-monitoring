@@ -208,6 +208,8 @@ SSH_HOST="${DESS_DEPLOY_SSH_HOST:-utf-sh}"
 REMOTE_APP_DIR="${DESS_DEPLOY_REMOTE_APP_DIR:-/opt/solar-system/app}"
 PUBLIC_URL="${DESS_DEPLOY_PUBLIC_URL:-https://solar.utf.sh}"
 ORIGIN_HOST_HEADER="${DESS_DEPLOY_ORIGIN_HOST_HEADER:-solar.utf.sh}"
+PUBLIC_CONNECT_TIMEOUT="${DESS_DEPLOY_PUBLIC_CONNECT_TIMEOUT:-5}"
+PUBLIC_MAX_TIME="${DESS_DEPLOY_PUBLIC_MAX_TIME:-20}"
 
 RESTART_MODE="auto"
 DRY_RUN=0
@@ -302,11 +304,19 @@ if [[ "$SKIP_PUBLIC_CHECK" == "0" ]]; then
   log "Verifying public Cloudflare Access response"
   public_status=""
   if [[ "$DRY_RUN" == "0" ]]; then
-    public_status="$(curl -sS -I -o /dev/null -w '%{http_code}' "$PUBLIC_URL")"
+    public_status="$(
+      curl -sS -I \
+        --connect-timeout "$PUBLIC_CONNECT_TIMEOUT" \
+        --max-time "$PUBLIC_MAX_TIME" \
+        -o /dev/null \
+        -w '%{http_code}' \
+        "$PUBLIC_URL"
+    )"
     printf 'Public status: %s\n' "$public_status"
     [[ "$public_status" == "302" ]] || die "expected public status 302 from Cloudflare Access, got ${public_status}"
   else
-    printf '+ curl -sS -I -o /dev/null -w %%{http_code} %q\n' "$PUBLIC_URL"
+    printf '+ curl -sS -I --connect-timeout %q --max-time %q -o /dev/null -w %%{http_code} %q\n' \
+      "$PUBLIC_CONNECT_TIMEOUT" "$PUBLIC_MAX_TIME" "$PUBLIC_URL"
   fi
 fi
 

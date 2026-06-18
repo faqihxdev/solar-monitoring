@@ -65,20 +65,23 @@ export interface StackNodeProps extends BaseProps {
   value: string;
   unit?: string;
   sub?: string;
+  /** Forces warning emphasis even when the node is otherwise idle. */
+  alert?: boolean;
 }
 
-export function StackNode({ label, icon, color, active, value, unit, sub }: StackNodeProps) {
+export function StackNode({ label, icon, color, active, value, unit, sub, alert }: StackNodeProps) {
+  const highlight = Boolean(active || alert);
   return (
     <div className="relative flex min-h-20 w-full items-center justify-center rounded-card border border-line-hi bg-panel-hi px-3 py-2.5 text-center">
       <div className="absolute left-3 top-2.5 flex items-center gap-1.5">
-        <FlowChip icon={icon} color={active ? color : C.textDim} />
+        <FlowChip icon={icon} color={highlight ? color : C.textDim} />
         <span className="text-xs font-semibold uppercase tracking-wider text-dim">{label}</span>
       </div>
-      <span className="absolute right-3 top-3 h-1.5 w-1.5 rounded-full" style={{ background: active ? color : C.line }} />
+      <span className="absolute right-3 top-3 h-1.5 w-1.5 rounded-full" style={{ background: highlight ? color : C.line }} />
       <div className="flex flex-col items-center gap-1 mt-2">
         <div
           className="font-mono text-2xl font-medium leading-none tracking-tight tabular-nums text-text"
-          style={active ? { color } : undefined}
+          style={highlight ? { color } : undefined}
         >
           {value}
           {unit && <small className="ml-1 text-xs font-normal text-dim">{unit}</small>}
