@@ -60,6 +60,7 @@ const AXIS = {
 const CHART_SYNC_ID = "solar-charts-time-sync";
 
 const SOC_Y_DOMAIN: [number, number] = [0, 100];
+const GRID_LOW_VOLTAGE_V = 50;
 
 const THRESH_SHORT: Record<string, string> = {
   soc_to_mains: "SOC GRID",
@@ -924,6 +925,9 @@ export default function Charts({
   const today = todayJkt();
   const isChartToday = chartDate === today;
   const canGoNext = !isChartToday;
+  const gridVoltage = latest?.grid_voltage ?? null;
+  const gridLowVoltage = gridVoltage != null && gridVoltage < GRID_LOW_VOLTAGE_V;
+  const gridVoltageColor = gridLowVoltage ? C.bad : C.grid;
 
   // All points returned by the API (may span more hours than the visible window for
   // historical dates, since we over-fetch to ensure coverage).
@@ -1236,10 +1240,11 @@ export default function Charts({
           title="Grid voltage"
           data={rows}
           dataKey="gridV"
-          color={C.grid}
+          color={gridVoltageColor}
           unit="V"
           digits={0}
-          current={cur(latest?.grid_voltage, 0)}
+          current={cur(gridVoltage, 0)}
+          danger={{ from: 0, to: GRID_LOW_VOLTAGE_V }}
           domain={domain}
         />
         <div className="lg:col-span-2">

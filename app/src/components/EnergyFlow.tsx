@@ -31,6 +31,7 @@ const BOX = {
   battery: { x: 398, y: 94, w: 244, h: 112 },
   load: { x: 790, y: 98, w: 244, h: 104 },
 };
+const GRID_LOW_VOLTAGE_V = 50;
 
 /** Compact link number, e.g. "0.42" (W) or "1.2k" (kW), with optional "~". */
 function linkLabel(kw: number, inferred = false): string {
@@ -94,6 +95,9 @@ export default function EnergyFlow({
 
   const pv = watts(latest?.pv_power);
   const load = powerKw(latest?.load_power);
+  const gridVoltage = latest?.grid_voltage ?? null;
+  const gridLowVoltage = gridVoltage != null && gridVoltage < GRID_LOW_VOLTAGE_V;
+  const gridColor = gridLowVoltage ? C.bad : C.grid;
   const battColor = statusColor(latest?.battery_status);
   const battState = statusLabel(latest?.battery_status);
 
@@ -111,7 +115,8 @@ export default function EnergyFlow({
   // Grid state mirrors the qualitative style of the solar node — the actual
   // power numbers live on the links, not inside the node.
   let gridSub = f.onMains ? "On mains" : "Standby";
-  if (!f.onMains && f.gridKw < -FLOW_MIN_KW) gridSub = "Exporting";
+  if (gridLowVoltage) gridSub = "Grid off";
+  else if (!f.onMains && f.gridKw < -FLOW_MIN_KW) gridSub = "Exporting";
 
   // Load gauge: scale against the rated output, falling back to recent peak.
   const historyPeak = history.reduce(
@@ -155,9 +160,10 @@ export default function EnergyFlow({
         <StackNode
           label="Grid"
           icon={Plug}
-          color={C.grid}
+          color={gridColor}
           active={gridActive}
-          value={latest?.grid_voltage != null ? num(latest.grid_voltage, 0) : "—"}
+          alert={gridLowVoltage}
+          value={gridVoltage != null ? num(gridVoltage, 0) : "—"}
           unit="V"
           sub={gridSub}
         />
