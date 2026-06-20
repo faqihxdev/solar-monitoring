@@ -1,4 +1,5 @@
 import type { DessmonitorClient } from "./dessClient";
+import type { ControlValueRecord, TelemetryStore } from "./store";
 import type { DeviceSettings } from "./types";
 
 const A6_RETURN_FROM_PLN_V = 27.0;
@@ -115,6 +116,79 @@ export function thresholdCatalogDefaults() {
     catalog[spec.group].push(entry(spec, DEFAULTS[spec.catalogId], false));
   }
   return catalog;
+}
+
+function cachedValue(spec: ThresholdField, record: ControlValueRecord | null): number | null {
+  if (!record) return null;
+
+  if (record.pack_value != null) {
+    const packValue = Number(record.pack_value);
+    if (Number.isFinite(packValue)) return packValue;
+  }
+
+  const rawValue = Number(record.raw_value);
+  return Number.isFinite(rawValue) ? rawValue * spec.scale : null;
+}
+
+export function thresholdCatalogFromControls(records: ControlValueRecord[]) {
+  const catalog = { battery_voltage: [] as unknown[], battery_soc: [] as unknown[] };
+  const byField = new Map(records.map((record) => [record.field_id, record]));
+  let cachedCount = 0;
+
+  for (const spec of THRESHOLD_FIELDS) {
+    const value = cachedValue(spec, byField.get(spec.fieldId) ?? null);
+    const fromCache = value != null;
+    if (fromCache) cachedCount += 1;
+    catalog[spec.group].push(entry(spec, value ?? DEFAULTS[spec.catalogId], fromCache));
+  }
+
+  return {
+    thresholds: catalog,
+    source: cachedCount === THRESHOLD_FIELDS.length ? "cache" : cachedCount > 0 ? "mixed" : "defaults",
+    fields_read: cachedCount,
+  };
+}
+
+export async function refreshThresholdControls(
+  client: DessmonitorClient,
+  settings: DeviceSettings,
+  store: TelemetryStore,
+  deviceSn: string,
+) {
+  let deviceCount = 0;
+  const errors: { id: string; error: string }[] = [];
+
+  for (const spec of THRESHOLD_FIELDS) {
+    try {
+      const payload = await client.queryDeviceCtrlValue({ ...settings, fieldId: spec.fieldId });
+      const dat = (payload.dat ?? {}) as Record<string, unknown>;
+      const raw = dat.val == null || String(dat.val).trim() === "--" ? null : String(dat.val).trim();
+      const value = raw == null ? null : Number(raw);
+
+      if (value == null || !Number.isFinite(value)) {
+        errors.push({ id: spec.fieldId, error: "empty or non-numeric value" });
+        continue;
+      }
+
+      store.upsertControlValue({
+        deviceSn,
+        fieldId: spec.fieldId,
+        label: String(dat.name ?? spec.label),
+        unit: spec.group === "battery_soc" ? "%" : "V",
+        scale: spec.scale,
+        rawValue: raw,
+        source: "device",
+      });
+      deviceCount += 1;
+    } catch (exc) {
+      errors.push({ id: spec.fieldId, error: String(exc instanceof Error ? exc.message : exc) });
+    }
+  }
+
+  return {
+    fields_read: deviceCount,
+    errors,
+  };
 }
 
 export async function fetchThresholdCatalog(client: DessmonitorClient, settings: DeviceSettings) {
