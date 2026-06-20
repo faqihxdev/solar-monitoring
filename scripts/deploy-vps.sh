@@ -199,6 +199,55 @@ restart_services() {
   esac
 }
 
+ensure_nginx_timeouts() {
+  log "Ensuring nginx API proxy timeouts"
+  run_remote "python3 - <<'PY'
+from pathlib import Path
+
+path = Path('/etc/nginx/sites-enabled/solar-utf-sh')
+text = path.read_text()
+start = text.index('    location /api/ {')
+end = text.index('    }', start)
+block = text[start:end]
+
+timeouts = {
+    'proxy_connect_timeout': '        proxy_connect_timeout 15s;',
+    'proxy_send_timeout': '        proxy_send_timeout 180s;',
+    'proxy_read_timeout': '        proxy_read_timeout 180s;',
+}
+
+lines = []
+seen = set()
+inserted = False
+for line in block.splitlines():
+    stripped = line.strip()
+    key = stripped.split()[0] if stripped.startswith('proxy_') else ''
+    if key in timeouts:
+        if key not in seen:
+            lines.append(timeouts[key])
+            seen.add(key)
+        continue
+
+    lines.append(line)
+    if stripped == 'proxy_http_version 1.1;':
+        for timeout_key, timeout_line in timeouts.items():
+            if timeout_key not in seen:
+                lines.append(timeout_line)
+                seen.add(timeout_key)
+        inserted = True
+
+if not inserted:
+    for timeout_key, timeout_line in timeouts.items():
+        if timeout_key not in seen:
+            lines.append(timeout_line)
+
+new_block = '\n'.join(lines)
+if new_block != block:
+    path.write_text(text[:start] + new_block + '\n' + text[end:])
+PY
+nginx -t && systemctl reload nginx"
+}
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${ROOT_DIR}/app"
@@ -296,6 +345,8 @@ log "Building on VPS"
 run_remote "chown -R solar:solar ${remote_app_dir_q} && sudo -u solar bash -lc $(printf '%q' "$remote_build_cmd")"
 
 restart_services
+
+ensure_nginx_timeouts
 
 log "Verifying VPS origin"
 run_remote "systemctl is-active solar-api solar-poller nginx && timeout 8 curl --connect-timeout 3 -sS -o /dev/null -w '%{http_code} %{content_type}\n' -H $(printf '%q' "Host: ${ORIGIN_HOST_HEADER}") http://127.0.0.1/"

@@ -102,6 +102,9 @@ export interface ThresholdsResponse {
   };
   source: string;
   fields_read?: number;
+  refresh_started?: boolean;
+  refreshing?: boolean;
+  last_refresh_at?: number | null;
   error?: string;
 }
 

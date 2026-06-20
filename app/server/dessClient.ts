@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 const API_BASE = "https://web.dessmonitor.com/public/";
+const DEFAULT_REQUEST_TIMEOUT_MS = 45_000;
 
 type JsonObject = Record<string, unknown>;
 
@@ -42,6 +43,11 @@ function normalizeControlWriteValue(fieldId: string, value: string): string {
     if (match) return match[1];
   }
   return raw;
+}
+
+function requestTimeoutMs(): number {
+  const value = Number(process.env.DESS_HTTP_TIMEOUT_MS ?? DEFAULT_REQUEST_TIMEOUT_MS);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
 export class DessmonitorClient {
@@ -184,7 +190,7 @@ export class DessmonitorClient {
 
   private async request(params: Record<string, string>, webStyle = false): Promise<JsonObject> {
     const query = paramString(params, webStyle);
-    const response = await fetch(`${API_BASE}?${query}`, { signal: AbortSignal.timeout(30000) });
+    const response = await fetch(`${API_BASE}?${query}`, { signal: AbortSignal.timeout(requestTimeoutMs()) });
     if (!response.ok) throw new Error(`DESS HTTP ${response.status}`);
     const payload = (await response.json()) as JsonObject;
     if (Number(payload.err) !== 0) {

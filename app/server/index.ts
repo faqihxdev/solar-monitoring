@@ -2,7 +2,7 @@ import http from "node:http";
 import { config } from "./env";
 import { DessmonitorClient } from "./dessClient";
 import { TelemetryStore } from "./store";
-import { fetchThresholdCatalog, thresholdCatalogDefaults } from "./thresholds";
+import { refreshThresholdControls, thresholdCatalogFromControls } from "./thresholds";
 import { ControlService } from "./controlService";
 import { AutomationEngine } from "./automation";
 import type { DeviceSettings, JsonRecord } from "./types";
@@ -43,6 +43,9 @@ const settings: Required<DeviceSettings> = {
   i18n: config.i18n,
 };
 
+const THRESHOLD_REFRESH_RETRY_MS = 60_000;
+const THRESHOLD_REFRESH_SUCCESS_MS = 10 * 60_000;
+
 function isoTimestamp(unixTs: unknown): string | null {
   const ts = Number(unixTs);
   return Number.isFinite(ts) ? new Date(ts * 1000).toISOString() : null;
@@ -75,6 +78,34 @@ function makeDessClient(): DessmonitorClient {
   return new DessmonitorClient(config.usr, config.pwd, config.companyKey);
 }
 
+let thresholdRefreshRunning = false;
+let lastThresholdRefreshAttemptMs = 0;
+let lastThresholdRefreshSuccessMs = 0;
+
+function maybeRefreshThresholds(source: string): boolean {
+  const now = Date.now();
+  const minInterval = source === "defaults" ? THRESHOLD_REFRESH_RETRY_MS : THRESHOLD_REFRESH_SUCCESS_MS;
+  if (thresholdRefreshRunning || now - lastThresholdRefreshAttemptMs < minInterval) return false;
+
+  thresholdRefreshRunning = true;
+  lastThresholdRefreshAttemptMs = now;
+
+  void refreshThresholdControls(makeDessClient(), settings, controlStore, config.sn)
+    .then((result) => {
+      if (result.fields_read > 0) lastThresholdRefreshSuccessMs = Date.now();
+      const failed = result.errors.length ? `, ${result.errors.length} error(s)` : "";
+      console.log(`[thresholds] background refresh: ${result.fields_read} field(s) read${failed}`);
+    })
+    .catch((exc) => {
+      console.error(`[thresholds] background refresh failed: ${String(exc instanceof Error ? exc.message : exc)}`);
+    })
+    .finally(() => {
+      thresholdRefreshRunning = false;
+    });
+
+  return true;
+}
+
 interface ApiContext {
   readStore: TelemetryStore;
   controlStore: TelemetryStore;
@@ -101,17 +132,15 @@ async function route(
   }
 
   if (pathname === "/api/thresholds") {
-    try {
-      const payload = await fetchThresholdCatalog(makeDessClient(), settings);
-      return { device_sn: config.sn, ...payload };
-    } catch (exc) {
-      return {
-        device_sn: config.sn,
-        thresholds: thresholdCatalogDefaults(),
-        source: "defaults",
-        error: String(exc instanceof Error ? exc.message : exc),
-      };
-    }
+    const payload = thresholdCatalogFromControls(controlStore.controlValues(config.sn));
+    const refresh_started = maybeRefreshThresholds(payload.source);
+    return {
+      device_sn: config.sn,
+      ...payload,
+      refresh_started,
+      refreshing: thresholdRefreshRunning,
+      last_refresh_at: lastThresholdRefreshSuccessMs ? lastThresholdRefreshSuccessMs / 1000 : null,
+    };
   }
 
   if (pathname === "/api/voltage-history") {
