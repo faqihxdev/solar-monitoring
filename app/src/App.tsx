@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Header from "./components/Header";
 import EnergyFlow from "./components/EnergyFlow";
 import Charts from "./components/Charts";
@@ -51,6 +51,27 @@ export default function App() {
   // Navigating either section's date arrows syncs both.
   // Clicking a range button (6H, 12H…) resets to today.
   const [date, setDate] = useState(() => todayJkt());
+
+  // The app is left open continuously on a display, so `date` (captured once above)
+  // would otherwise get stuck on whichever day the page happened to load on. Poll for
+  // the real calendar day changing (Jakarta time) and, if the view was tracking "today",
+  // advance it to the new day. A manually-selected past day is left untouched.
+  const lastTodayRef = useRef(todayJkt());
+  useEffect(() => {
+    const checkRollover = () => {
+      const current = todayJkt();
+      if (current === lastTodayRef.current) return;
+      const previousToday = lastTodayRef.current;
+      lastTodayRef.current = current;
+      setDate((prev) => (prev === previousToday ? current : prev));
+    };
+    const id = window.setInterval(checkRollover, 60_000);
+    document.addEventListener("visibilitychange", checkRollover);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", checkRollover);
+    };
+  }, []);
 
   const hours = chartFetchHours(range, date);
 
