@@ -83,7 +83,7 @@ export default function Header({ deviceSn, latest, online, polledAtMs, lastIso }
     <header className="animate-[fadein_0.5s_ease_both] flex items-center justify-between gap-4 lg:gap-6">
       <div className="flex min-w-0 items-center gap-2.5 text-lg font-bold leading-tight tracking-wide lg:gap-3 lg:text-xl">
         <BatteryCharging className="size-7 shrink-0 text-solar lg:size-9" strokeWidth={2} />
-        <span>Solar System</span>
+        <span>Solar Monitoring</span>
       </div>
 
       <div className="flex min-w-0 items-center gap-2 lg:gap-3">
