@@ -18,9 +18,11 @@ Restart overrides:
 
 Environment overrides:
   DESS_DEPLOY_SSH_BIN         SSH binary. Default: /mnt/c/Windows/System32/OpenSSH/ssh.exe
-  DESS_DEPLOY_SSH_HOST        SSH host alias. Default: utf-sh
+  DESS_DEPLOY_SSH_HOST        SSH host alias. Default: your-vps-host
   DESS_DEPLOY_REMOTE_APP_DIR  Remote app dir. Default: /opt/solar-system/app
-  DESS_DEPLOY_PUBLIC_URL      Public URL. Default: https://solar.utf.sh
+  DESS_DEPLOY_PUBLIC_URL      Public URL. Default: https://your-domain.example
+  DESS_DEPLOY_ORIGIN_HOST_HEADER  Origin Host header for local curl checks. Default: your-domain.example
+  DESS_DEPLOY_NGINX_SITE_PATH Nginx site file path. Default: /etc/nginx/sites-enabled/your-domain.example
 EOF
 }
 
@@ -204,7 +206,7 @@ ensure_nginx_timeouts() {
   run_remote "python3 - <<'PY'
 from pathlib import Path
 
-path = Path('/etc/nginx/sites-enabled/solar-utf-sh')
+path = Path('${NGINX_SITE_PATH}')
 text = path.read_text()
 start = text.index('    location /api/ {')
 end = text.index('    }', start)
@@ -253,10 +255,11 @@ ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${ROOT_DIR}/app"
 
 SSH_BIN="${DESS_DEPLOY_SSH_BIN:-/mnt/c/Windows/System32/OpenSSH/ssh.exe}"
-SSH_HOST="${DESS_DEPLOY_SSH_HOST:-utf-sh}"
+SSH_HOST="${DESS_DEPLOY_SSH_HOST:-your-vps-host}"
 REMOTE_APP_DIR="${DESS_DEPLOY_REMOTE_APP_DIR:-/opt/solar-system/app}"
-PUBLIC_URL="${DESS_DEPLOY_PUBLIC_URL:-https://solar.utf.sh}"
-ORIGIN_HOST_HEADER="${DESS_DEPLOY_ORIGIN_HOST_HEADER:-solar.utf.sh}"
+PUBLIC_URL="${DESS_DEPLOY_PUBLIC_URL:-https://your-domain.example}"
+ORIGIN_HOST_HEADER="${DESS_DEPLOY_ORIGIN_HOST_HEADER:-your-domain.example}"
+NGINX_SITE_PATH="${DESS_DEPLOY_NGINX_SITE_PATH:-/etc/nginx/sites-enabled/your-domain.example}"
 PUBLIC_CONNECT_TIMEOUT="${DESS_DEPLOY_PUBLIC_CONNECT_TIMEOUT:-5}"
 PUBLIC_MAX_TIME="${DESS_DEPLOY_PUBLIC_MAX_TIME:-20}"
 
@@ -314,6 +317,7 @@ decide_install_mode
 log "Deploy target"
 printf 'SSH host: %s\n' "$SSH_HOST"
 printf 'Remote app: %s\n' "$REMOTE_APP_DIR"
+printf 'Nginx site: %s\n' "$NGINX_SITE_PATH"
 printf 'Restart: %s (%s)\n' "$RESTART_MODE" "$CLASSIFY_REASON"
 printf 'Remote install: %s (%s)\n' "$NEEDS_INSTALL" "$INSTALL_REASON"
 
