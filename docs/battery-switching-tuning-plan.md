@@ -63,17 +63,23 @@ If chatter still appears:
 - Do not raise A7 unless the goal changes from maximum battery use to earlier
   mains takeover.
 
-Current voltage-to-SOC interpretation
--------------------------------------
-The SOC percentage controls appear secondary or ignored in this setup, but the
-rough voltage-equivalent SOCs are:
+Voltage-to-SOC interpretation
+-----------------------------
+The dashboard derives practical SOC from the 24V (8s) table in PowMr's
+"Guide for LiFePO4 Voltage Chart & SOC 12V/24V/48V" (Aug 26, 2024), with
+linear interpolation between the published points. Relevant equivalents are:
 
-- A6 = 12.4V single / 24.8V pack: around the observed 46% area under load.
-- A7 = 11.7V single / 23.4V pack: around the observed 19% area under load.
-- A4 = 11.2V single / 22.4V pack: near empty/protection territory.
+- A6 = 12.4V single / 24.8V pack: about 16.7%.
+- A7 = 11.7V single / 23.4V pack: about 7.8%.
+- A4 = 11.2V single / 22.4V pack: 5%.
 
-These are observed under real load and PV conditions, not resting open-circuit
-SOC values. Treat them as device-specific calibration points.
+The vendor table is an open-circuit reference: loads and chargers should be
+disconnected and the battery rested for 15-30 minutes before measurement. The
+dashboard instead receives active-pack telemetry, so it applies a 15-minute
+mean to reduce quantization and brief load sag, but the result remains an
+estimate. Earlier telemetry observations around 46% at 24.8V and 19% at 23.4V
+were inverter-reported values under load, not resting-voltage calibration
+points.
 
 Theoretical lowest safe-margin reference
 ----------------------------------------
