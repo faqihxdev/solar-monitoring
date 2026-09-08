@@ -1,17 +1,25 @@
+import { isMainsConnected } from "../shared/energyFlows";
+
 export function num(value: number | null | undefined, digits = 1): string {
   if (value == null || Number.isNaN(value)) return "—";
   return Number(value).toFixed(digits);
 }
 
 // Power as W when small, kW otherwise. Input is in kW.
-export function powerKw(kw: number | null | undefined): { value: string; unit: string } {
+export function powerKw(kw: number | null | undefined): {
+  value: string;
+  unit: string;
+} {
   if (kw == null || Number.isNaN(kw)) return { value: "—", unit: "" };
   const abs = Math.abs(kw);
   if (abs < 1) return { value: Math.round(kw * 1000).toString(), unit: "W" };
   return { value: kw.toFixed(2), unit: "kW" };
 }
 
-export function watts(w: number | null | undefined): { value: string; unit: string } {
+export function watts(w: number | null | undefined): {
+  value: string;
+  unit: string;
+} {
   if (w == null || Number.isNaN(w)) return { value: "—", unit: "" };
   const abs = Math.abs(w);
   if (abs >= 1000) return { value: (w / 1000).toFixed(2), unit: "kW" };
@@ -57,7 +65,9 @@ export type RangeKey = "6h" | "12h" | "1d" | "3d" | "1w" | "today";
 
 // Jakarta is UTC+7 with no DST — safe to use fixed offset.
 export function jakartaMidnightMs(): number {
-  const dateStr = new Date().toLocaleDateString("sv", { timeZone: DISPLAY_TIME_ZONE });
+  const dateStr = new Date().toLocaleDateString("sv", {
+    timeZone: DISPLAY_TIME_ZONE,
+  });
   return Date.parse(`${dateStr}T00:00:00+07:00`);
 }
 
@@ -85,18 +95,16 @@ export function hoursForRange(range: RangeKey): number {
     // Ceiling to whole hours for cache-key stability; at least 1h so chart isn't empty.
     return Math.max(1, Math.ceil(elapsed));
   }
-  const map: Record<string, number> = { "6h": 6, "12h": 12, "1d": 24, "3d": 72, "1w": 168 };
+  const map: Record<string, number> = {
+    "6h": 6,
+    "12h": 12,
+    "1d": 24,
+    "3d": 72,
+    "1w": 168,
+  };
   return map[range] ?? 6;
 }
 
 export function isOnMains(workingState: string | null | undefined): boolean {
-  if (!workingState) return false;
-  const s = workingState.toLowerCase();
-  return (
-    s.includes("mains") ||
-    s.includes("grid") ||
-    s.includes("utility") ||
-    s.includes("on-line") ||
-    s.includes("online")
-  );
+  return isMainsConnected(workingState);
 }

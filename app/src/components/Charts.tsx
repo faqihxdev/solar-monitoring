@@ -1,5 +1,5 @@
 import { memo, useMemo, Fragment } from "react";
-import { LineChart } from "lucide-react";
+import { DateNavigator, EmptyState, SectionHeading } from "./ui";
 import {
   Area,
   AreaChart,
@@ -11,7 +11,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { HistoryResponse, VoltageResponse, ThresholdEntry, Reading } from "../api";
+import type {
+  HistoryResponse,
+  VoltageResponse,
+  ThresholdEntry,
+  Reading,
+} from "../api";
 import {
   meanVoltage,
   practicalSocPct,
@@ -27,7 +32,6 @@ import {
   jakartaMidnightMsForDate,
   hoursForRange,
   offsetDate,
-  formatDayShort,
   todayJkt,
 } from "../format";
 import type { RangeKey } from "../format";
@@ -41,20 +45,21 @@ interface Props {
   voltage: VoltageResponse | undefined;
   voltageThresholds: ThresholdEntry[];
   latest: Reading | null;
+  loading: boolean;
 }
 
 const RANGES: { key: RangeKey; label: string; title?: string }[] = [
-  { key: "6h", label: "6H" },
-  { key: "12h", label: "12H" },
-  { key: "1d", label: "1D" },
-  { key: "3d", label: "3D" },
-  { key: "1w", label: "1W" },
+  { key: "6h", label: "6h" },
+  { key: "12h", label: "12h" },
+  { key: "1d", label: "1d" },
+  { key: "3d", label: "3d" },
+  { key: "1w", label: "1w" },
 ];
 
 const AXIS = {
   fill: C.textFaint,
-  fontSize: 10,
-  fontFamily: FONT.mono,
+  fontSize: 11,
+  fontFamily: FONT.display,
 };
 
 const CHART_SYNC_ID = "solar-charts-time-sync";
@@ -73,7 +78,9 @@ const THRESH_SHORT: Record<string, string> = {
 };
 
 function limitLabel(text: string, color: string) {
-  return (props: { viewBox?: { x: number; y: number; width: number; height: number } }) => {
+  return (props: {
+    viewBox?: { x: number; y: number; width: number; height: number };
+  }) => {
     const vb = props.viewBox;
     if (!vb) return <g />;
     const w = text.length * 4.6;
@@ -81,14 +88,7 @@ function limitLabel(text: string, color: string) {
     const y = vb.y - 5;
     return (
       <g>
-        <rect
-          x={x}
-          y={y}
-          width={w}
-          height={10}
-          rx={2}
-          fill="#0a0c0d"
-        />
+        <rect x={x} y={y} width={w} height={10} rx={2} fill={C.panel} />
         <text
           x={x + w / 2}
           y={y + 7}
@@ -146,9 +146,14 @@ function ChartTooltip({
   if (!active || !payload || !payload.length) return null;
   return (
     <div className="rounded-card border border-line-hi bg-bg px-3 py-2 font-mono text-xs shadow-xl shadow-black/40">
-      <div className="mb-1.5 text-xs text-faint">{label ? fullTime(label) : ""}</div>
+      <div className="mb-1.5 text-xs text-faint">
+        {label ? fullTime(label) : ""}
+      </div>
       {payload.map((p) => (
-        <div className="flex items-center justify-between gap-4 leading-relaxed" key={p.name}>
+        <div
+          className="flex items-center justify-between gap-4 leading-relaxed"
+          key={p.name}
+        >
           <span style={{ color: p.color }}>{p.name}</span>
           <span>
             {p.value == null ? "—" : num(p.value, digits)}
@@ -167,7 +172,10 @@ interface MetricChartBodyProps {
   unit: string;
   digits: number;
   domain: [number, number];
-  yDomain?: [number | ((v: number) => number), number | ((v: number) => number)];
+  yDomain?: [
+    number | ((v: number) => number),
+    number | ((v: number) => number),
+  ];
   thresholds?: ThresholdEntry[];
   danger?: { from: number; to: number };
   wide?: boolean;
@@ -209,7 +217,9 @@ const MetricChartBody = memo(function MetricChartBody({
           width={34}
           domain={yDomain ?? ["auto", "auto"]}
           allowDataOverflow={Boolean(yDomain)}
-          tickFormatter={(v) => num(v, digits === 0 ? 0 : digits > 1 ? 1 : digits)}
+          tickFormatter={(v) =>
+            num(v, digits === 0 ? 0 : digits > 1 ? 1 : digits)
+          }
         />
         {danger && (
           <ReferenceArea
@@ -223,7 +233,9 @@ const MetricChartBody = memo(function MetricChartBody({
         {thresholds?.map((t) => {
           const short = THRESH_SHORT[t.id] ?? "";
           const isVoltage = unit === "V";
-          const primaryVal = isVoltage ? `${num(t.value, 1)}V` : `${Math.round(t.value)}%`;
+          const primaryVal = isVoltage
+            ? `${num(t.value, 1)}V`
+            : `${Math.round(t.value)}%`;
           const singleVal =
             isVoltage && t.scale > 1 ? `${num(t.value / t.scale, 1)}V` : null;
           const labelText = short ? `${short} ${primaryVal}` : primaryVal;
@@ -233,7 +245,10 @@ const MetricChartBody = memo(function MetricChartBody({
               y={t.value}
               stroke={t.color}
               strokeOpacity={0.55}
-              label={limitLabel(singleVal ? `${labelText} (${singleVal})` : labelText, t.color)}
+              label={limitLabel(
+                singleVal ? `${labelText} (${singleVal})` : labelText,
+                t.color,
+              )}
             />
           );
         })}
@@ -246,7 +261,7 @@ const MetricChartBody = memo(function MetricChartBody({
           type="stepAfter"
           dataKey={dataKey}
           stroke={color}
-          strokeWidth={1.6}
+          strokeWidth={2}
           fill={color}
           fillOpacity={0.1}
           dot={false}
@@ -312,9 +327,9 @@ const SocChartBody = memo(function SocChartBody({
           dataKey="practicalSoc"
           name="Practical SOC"
           stroke={C.battery}
-          strokeWidth={1.8}
+          strokeWidth={2}
           fill={C.battery}
-          fillOpacity={0.12}
+          fillOpacity={0.28}
           dot={false}
           isAnimationActive={false}
           connectNulls
@@ -323,7 +338,7 @@ const SocChartBody = memo(function SocChartBody({
           type="stepAfter"
           dataKey="soc"
           name="Reported SOC"
-          stroke="rgba(200,204,210,0.2)"
+          stroke="rgba(200,200,200,0.55)"
           strokeWidth={1.2}
           fill="none"
           dot={false}
@@ -347,24 +362,38 @@ function CombinedSocChart({
   domain: [number, number];
 }) {
   return (
-    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+    <div className="chart-panel">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Battery SOC</span>
+        <span className="chart-title">Battery state of charge</span>
         <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
-          <span style={{ color: C.battery }}>{currentPractical} <small>%</small></span>
+          <span style={{ color: C.battery }}>
+            {currentPractical} <small>%</small>
+          </span>
           <span className="text-sm text-faint">/</span>
-          <span style={{ color: C.load, opacity: 0.5 }}>{currentReported} <small>%</small></span>
+          <span style={{ color: C.load, opacity: 0.7 }}>
+            {currentReported} <small>%</small>
+          </span>
         </span>
       </div>
       <SocChartBody data={data} domain={domain} danger={{ from: 0, to: 10 }} />
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
-        <span className="font-mono text-xs tracking-wide text-faint">practical curve vs reported estimate</span>
+        <span className="font-mono text-xs tracking-wide text-faint">
+          Voltage-based estimate and device reading
+        </span>
         <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
           <span className="inline-flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.battery }} /> Practical
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.battery }}
+            />{" "}
+            Practical
           </span>
           <span className="inline-flex items-center gap-1.5 text-faint">
-            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load, opacity: 0.5 }} /> Reported
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.load, opacity: 0.7 }}
+            />{" "}
+            Reported
           </span>
         </div>
       </div>
@@ -372,7 +401,15 @@ function CombinedSocChart({
   );
 }
 
-const SOLAR_LOAD_ORDER = ["Solar", "Grid", "Load", "Discharge", "Charge"] as const;
+// White keeps the load boundary distinct over the stacked source colors.
+const ENERGY_SOURCES_LOAD_COLOR = "#ffffff";
+const SOLAR_LOAD_ORDER = [
+  "Solar",
+  "Grid",
+  "Load",
+  "Discharge",
+  "Charge",
+] as const;
 
 function SolarLoadTooltip({
   active,
@@ -388,9 +425,14 @@ function SolarLoadTooltip({
   const sorted = SOLAR_LOAD_ORDER.map((n) => byName[n]).filter(Boolean);
   return (
     <div className="rounded-card border border-line-hi bg-bg px-3 py-2 font-mono text-xs shadow-xl shadow-black/40">
-      <div className="mb-1.5 text-xs text-faint">{label ? fullTime(label) : ""}</div>
+      <div className="mb-1.5 text-xs text-faint">
+        {label ? fullTime(label) : ""}
+      </div>
       {sorted.map((p) => (
-        <div className="flex items-center justify-between gap-4 leading-relaxed" key={p.name}>
+        <div
+          className="flex items-center justify-between gap-4 leading-relaxed"
+          key={p.name}
+        >
           <span style={{ color: p.color }}>{p.name}</span>
           <span>{num(p.value, 0)} W</span>
         </div>
@@ -413,7 +455,9 @@ function PackVoltageTooltip({
   const practical = payload.find((p) => p.name === "Fixed SOC guide");
   return (
     <div className="rounded-card border border-line-hi bg-bg px-3 py-2 font-mono text-xs shadow-xl shadow-black/40">
-      <div className="mb-1.5 text-xs text-faint">{label ? fullTime(label) : ""}</div>
+      <div className="mb-1.5 text-xs text-faint">
+        {label ? fullTime(label) : ""}
+      </div>
       {voltage && (
         <div className="flex items-center justify-between gap-4 leading-relaxed">
           <span style={{ color: voltage.color }}>{voltage.name}</span>
@@ -438,7 +482,10 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
 }: {
   data: Row[];
   domain: [number, number];
-  yDomain?: [number | ((v: number) => number), number | ((v: number) => number)];
+  yDomain?: [
+    number | ((v: number) => number),
+    number | ((v: number) => number),
+  ];
   thresholds?: ThresholdEntry[];
 }) {
   return (
@@ -473,7 +520,7 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
           type="monotone"
           dataKey="curveGuideV"
           name="Fixed SOC guide"
-          stroke="rgba(200,204,210,0.2)"
+          stroke="rgba(200,200,200,0.55)"
           strokeWidth={1.2}
           fill="none"
           dot={false}
@@ -483,7 +530,8 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
         {thresholds?.map((t) => {
           const short = THRESH_SHORT[t.id] ?? "";
           const primaryVal = `${num(t.value, 1)}V`;
-          const singleVal = t.scale > 1 ? `${num(t.value / t.scale, 1)}V` : null;
+          const singleVal =
+            t.scale > 1 ? `${num(t.value / t.scale, 1)}V` : null;
           const labelText = short ? `${short} ${primaryVal}` : primaryVal;
           return (
             <ReferenceLine
@@ -492,7 +540,10 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
               y={t.value}
               stroke={t.color}
               strokeOpacity={0.55}
-              label={limitLabel(singleVal ? `${labelText} (${singleVal})` : labelText, t.color)}
+              label={limitLabel(
+                singleVal ? `${labelText} (${singleVal})` : labelText,
+                t.color,
+              )}
             />
           );
         })}
@@ -507,9 +558,9 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
           dataKey="v"
           name="Pack voltage"
           stroke={C.battery}
-          strokeWidth={1.6}
+          strokeWidth={2}
           fill={C.battery}
-          fillOpacity={0.08}
+          fillOpacity={0.24}
           dot={false}
           isAnimationActive={false}
           connectNulls
@@ -531,17 +582,24 @@ function PackVoltageChart({
   currentVoltage: string;
   currentPractical: string;
   domain: [number, number];
-  yDomain?: [number | ((v: number) => number), number | ((v: number) => number)];
+  yDomain?: [
+    number | ((v: number) => number),
+    number | ((v: number) => number),
+  ];
   thresholds?: ThresholdEntry[];
 }) {
   return (
-    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+    <div className="chart-panel">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Pack Voltage</span>
+        <span className="chart-title">Battery voltage</span>
         <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
-          <span style={{ color: C.battery }}>{currentVoltage} <small>V</small></span>
+          <span style={{ color: C.battery }}>
+            {currentVoltage} <small>V</small>
+          </span>
           <span className="text-sm text-faint">/</span>
-          <span style={{ color: C.textFaint }}>{currentPractical} <small>%</small></span>
+          <span style={{ color: C.textFaint }}>
+            {currentPractical} <small>%</small>
+          </span>
         </span>
       </div>
       <PackVoltageChartBody
@@ -551,13 +609,23 @@ function PackVoltageChart({
         thresholds={thresholds}
       />
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
-        <span className="font-mono text-xs tracking-wide text-faint">line axis with fixed practical V-% guide</span>
+        <span className="font-mono text-xs tracking-wide text-faint">
+          Pack voltage and reference charge curve
+        </span>
         <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
           <span className="inline-flex items-center gap-1.5">
-            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.battery }} /> Voltage
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.battery }}
+            />{" "}
+            Voltage
           </span>
           <span className="inline-flex items-center gap-1.5 text-faint">
-            <i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load, opacity: 0.5 }} /> Fixed SOC guide
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.load, opacity: 0.7 }}
+            />{" "}
+            Fixed SOC guide
           </span>
         </div>
       </div>
@@ -602,16 +670,16 @@ const SolarLoadChartBody = memo(function SolarLoadChartBody({
           cursor={{ stroke: C.lineHi, strokeWidth: 1, strokeDasharray: "4 4" }}
         />
         {/* Stacked power flow: bottom→top = pvToLoad, battToLoad, gridToLoad, pvToCharge */}
-        {/* Together they sum to total solar (pv). Load line sits at the charge boundary. */}
+        {/* Sources supply load plus charging. The load line marks that boundary. */}
         <Area
           type="stepAfter"
           dataKey="pvToLoadW"
           name="Solar"
           stackId="flow"
           stroke={C.solar}
-          strokeWidth={0}
+          strokeWidth={0.9}
           fill={C.solar}
-          fillOpacity={0.45}
+          fillOpacity={0.66}
           dot={false}
           isAnimationActive={false}
         />
@@ -621,9 +689,9 @@ const SolarLoadChartBody = memo(function SolarLoadChartBody({
           name="Discharge"
           stackId="flow"
           stroke={C.discharge}
-          strokeWidth={0}
+          strokeWidth={0.9}
           fill={C.discharge}
-          fillOpacity={0.5}
+          fillOpacity={0.66}
           dot={false}
           isAnimationActive={false}
         />
@@ -633,9 +701,9 @@ const SolarLoadChartBody = memo(function SolarLoadChartBody({
           name="Grid"
           stackId="flow"
           stroke={C.grid}
-          strokeWidth={0}
+          strokeWidth={0.9}
           fill={C.grid}
-          fillOpacity={0.5}
+          fillOpacity={0.66}
           dot={false}
           isAnimationActive={false}
         />
@@ -645,9 +713,9 @@ const SolarLoadChartBody = memo(function SolarLoadChartBody({
           name="Charge"
           stackId="flow"
           stroke={C.charge}
-          strokeWidth={0}
+          strokeWidth={0.9}
           fill={C.charge}
-          fillOpacity={0.5}
+          fillOpacity={0.66}
           dot={false}
           isAnimationActive={false}
         />
@@ -656,7 +724,7 @@ const SolarLoadChartBody = memo(function SolarLoadChartBody({
           type="stepAfter"
           dataKey="loadW"
           name="Load"
-          stroke={C.load}
+          stroke={ENERGY_SOURCES_LOAD_COLOR}
           strokeWidth={1.5}
           fill="none"
           dot={false}
@@ -688,9 +756,9 @@ function SolarLoadChart({
   ];
   const hasAny = sources.some((s) => s.value !== "—");
   return (
-    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+    <div className="chart-panel">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Load Sources</span>
+        <span className="chart-title">Energy sources</span>
         <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
           {!hasAny ? (
             <span className="text-faint">—</span>
@@ -700,7 +768,10 @@ function SolarLoadChart({
               return (
                 <Fragment key={i}>
                   {i > 0 && <span className="text-xs text-faint">/</span>}
-                  <span style={{ color: s.color }} className={active ? "" : "opacity-35"}>
+                  <span
+                    style={{ color: s.color }}
+                    className={active ? "" : "opacity-35"}
+                  >
                     {s.value} <small>kW</small>
                   </span>
                 </Fragment>
@@ -711,13 +782,45 @@ function SolarLoadChart({
       </div>
       <SolarLoadChartBody data={data} domain={domain} />
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
-        <span className="font-mono text-xs tracking-wide text-faint">load power sources</span>
+        <span className="font-mono text-xs tracking-wide text-faint">
+          Power delivered by each source
+        </span>
         <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.solar }} /> Solar</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.grid }} /> Grid</span>
-          <span className="inline-flex items-center gap-1.5 text-faint"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.load }} /> Load</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.discharge }} /> Discharge</span>
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.charge }} /> Charge</span>
+          <span className="inline-flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.solar }}
+            />{" "}
+            Solar
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.grid }}
+            />{" "}
+            Grid
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-faint">
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: ENERGY_SOURCES_LOAD_COLOR }}
+            />{" "}
+            Load
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.discharge }}
+            />{" "}
+            Discharge
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.charge }}
+            />{" "}
+            Charge
+          </span>
         </div>
       </div>
     </div>
@@ -738,7 +841,9 @@ function SolarGenTooltip({
   const load = payload.find((p) => p.name === "Load");
   return (
     <div className="rounded-card border border-line-hi bg-bg px-3 py-2 font-mono text-xs shadow-xl shadow-black/40">
-      <div className="mb-1.5 text-xs text-faint">{label ? fullTime(label) : ""}</div>
+      <div className="mb-1.5 text-xs text-faint">
+        {label ? fullTime(label) : ""}
+      </div>
       {solar && (
         <div className="flex items-center justify-between gap-4 leading-relaxed">
           <span style={{ color: solar.color }}>Solar</span>
@@ -797,9 +902,9 @@ const SolarGenerationChartBody = memo(function SolarGenerationChartBody({
           dataKey="pv"
           name="Solar"
           stroke={C.solar}
-          strokeWidth={1.6}
+          strokeWidth={2}
           fill={C.solar}
-          fillOpacity={0.15}
+          fillOpacity={0.32}
           dot={false}
           isAnimationActive={false}
           connectNulls
@@ -808,7 +913,7 @@ const SolarGenerationChartBody = memo(function SolarGenerationChartBody({
           type="stepAfter"
           dataKey="loadW"
           name="Load"
-          stroke="rgba(200,204,210,0.2)"
+          stroke="rgba(200,200,200,0.55)"
           strokeWidth={1.2}
           fill="none"
           dot={false}
@@ -832,21 +937,39 @@ function SolarGenerationChart({
   domain: [number, number];
 }) {
   return (
-    <div className="rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3">
+    <div className="chart-panel">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">Solar Generation</span>
+        <span className="chart-title">Solar generation</span>
         <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
-          <span style={{ color: C.solar }}>{currentSolar} <small>W</small></span>
+          <span style={{ color: C.solar }}>
+            {currentSolar} <small>W</small>
+          </span>
           <span className="text-xs text-faint">/</span>
-          <span className="text-faint">{currentLoad} <small>W</small></span>
+          <span className="text-faint">
+            {currentLoad} <small>W</small>
+          </span>
         </span>
       </div>
       <SolarGenerationChartBody data={data} domain={domain} />
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
-        <span className="font-mono text-xs tracking-wide text-faint">total pv output</span>
+        <span className="font-mono text-xs tracking-wide text-faint">
+          Panel output and household demand
+        </span>
         <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
-          <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-xs" style={{ background: C.solar }} /> Solar</span>
-          <span className="inline-flex items-center gap-1.5 text-faint"><i className="inline-block h-0.5 w-2.5" style={{ background: C.load, opacity: 0.5 }} /> Load</span>
+          <span className="inline-flex items-center gap-1.5">
+            <i
+              className="inline-block h-2.5 w-2.5 rounded-xs"
+              style={{ background: C.solar }}
+            />{" "}
+            Solar
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-faint">
+            <i
+              className="inline-block h-0.5 w-2.5"
+              style={{ background: C.load, opacity: 0.7 }}
+            />{" "}
+            Load
+          </span>
         </div>
       </div>
     </div>
@@ -876,17 +999,23 @@ function MetricChart({
   digits: number;
   current: string;
   domain: [number, number];
-  yDomain?: [number | ((v: number) => number), number | ((v: number) => number)];
+  yDomain?: [
+    number | ((v: number) => number),
+    number | ((v: number) => number),
+  ];
   thresholds?: ThresholdEntry[];
   danger?: { from: number; to: number };
   wide?: boolean;
   headerNote?: string;
 }) {
   return (
-    <div className={`${wide ? "lg:col-span-full" : ""} rounded-card border border-line bg-panel px-2.5 pb-2 pt-2.5 sm:px-3 sm:pt-3`}>
+    <div className={`${wide ? "lg:col-span-full" : ""} chart-panel`}>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-dim sm:text-xs sm:tracking-widest">{title}</span>
-        <span className="font-mono text-sm tabular-nums sm:text-base" style={{ color }}>
+        <span className="chart-title">{title}</span>
+        <span
+          className="font-mono text-sm tabular-nums sm:text-base"
+          style={{ color }}
+        >
           {current} <small>{unit}</small>
         </span>
       </div>
@@ -904,13 +1033,14 @@ function MetricChart({
       />
       {headerNote && (
         <div className="flex min-h-5 items-center justify-between pt-1.5">
-          <span className="font-mono text-xs tracking-wide text-faint">{headerNote}</span>
+          <span className="font-mono text-xs tracking-wide text-faint">
+            {headerNote}
+          </span>
         </div>
       )}
     </div>
   );
 }
-
 
 export default function Charts({
   range,
@@ -921,13 +1051,10 @@ export default function Charts({
   voltage,
   voltageThresholds,
   latest,
+  loading,
 }: Props) {
   const today = todayJkt();
   const isChartToday = chartDate === today;
-  const canGoNext = !isChartToday;
-  const gridVoltage = latest?.grid_voltage ?? null;
-  const gridLowVoltage = gridVoltage != null && gridVoltage < GRID_LOW_VOLTAGE_V;
-  const gridVoltageColor = gridLowVoltage ? C.bad : C.grid;
 
   // All points returned by the API (may span more hours than the visible window for
   // historical dates, since we over-fetch to ensure coverage).
@@ -951,7 +1078,7 @@ export default function Charts({
         practicalSoc: null,
         curveGuideV: null,
       })),
-    [history]
+    [history],
   );
 
   const serverNow = (history?.server_now ?? Date.now() / 1000) * 1000;
@@ -962,20 +1089,24 @@ export default function Charts({
     : jakartaMidnightMsForDate(offsetDate(chartDate, 1));
 
   // Window duration: for a past "today" range treat it as a full 24-hour day
-  const rangeWindowMs = range === "today" && !isChartToday
-    ? 24 * 3600_000
-    : hoursForRange(range) * 3600_000;
+  const rangeWindowMs =
+    range === "today" && !isChartToday
+      ? 24 * 3600_000
+      : hoursForRange(range) * 3600_000;
 
   // Visible time domain — computed before filtering so rawRows[0].t can inform the live left edge.
   const domain = useMemo<[number, number]>(() => {
     let domainStart: number;
     if (range === "today") {
-      domainStart = isChartToday ? jakartaMidnightMs() : jakartaMidnightMsForDate(chartDate);
+      domainStart = isChartToday
+        ? jakartaMidnightMs()
+        : jakartaMidnightMsForDate(chartDate);
     } else {
       const naturalStart = chartEndMs - rangeWindowMs;
-      domainStart = isChartToday && rawRows.length
-        ? Math.min(rawRows[0].t, naturalStart)
-        : naturalStart;
+      domainStart =
+        isChartToday && rawRows.length
+          ? Math.min(rawRows[0].t, naturalStart)
+          : naturalStart;
     }
     return [domainStart, chartEndMs];
   }, [range, rawRows, chartDate, chartEndMs, rangeWindowMs, isChartToday]);
@@ -983,7 +1114,7 @@ export default function Charts({
   // Rows clipped to the visible window so Recharts never renders out-of-domain data.
   const rows = useMemo(
     () => rawRows.filter((r) => r.t >= domain[0] && r.t <= domain[1]),
-    [rawRows, domain]
+    [rawRows, domain],
   );
 
   const voltageSeries = useMemo<VoltPoint[]>(
@@ -992,42 +1123,72 @@ export default function Charts({
         t: p.sampled_at * 1000,
         v: p.battery_voltage,
       })),
-    [voltage]
+    [voltage],
   );
 
-  const voltRows = useMemo(
-    () => {
-      if (rows.length) {
-        if (!voltageSeries.length) {
-          return rows.map((r) => ({
-            ...r,
-            v: r.v ?? latest?.battery_voltage ?? null,
-          }));
-        }
-        let idx = 0;
-        return rows.map((r) => {
-          while (idx + 1 < voltageSeries.length && voltageSeries[idx + 1].t <= r.t) {
-            idx += 1;
-          }
-          let best = voltageSeries[idx];
-          if (idx + 1 < voltageSeries.length) {
-            const next = voltageSeries[idx + 1];
-            if (Math.abs(next.t - r.t) < Math.abs(best.t - r.t)) {
-              best = next;
-            }
-          }
-          return {
-            ...r,
-            v: best.v ?? r.v ?? latest?.battery_voltage ?? null,
-          };
-        });
+  const voltRows = useMemo(() => {
+    if (rows.length) {
+      if (!voltageSeries.length) {
+        return rows.map((r) => ({
+          ...r,
+          v: r.v ?? (isChartToday ? latest?.battery_voltage : null) ?? null,
+        }));
       }
+      let idx = 0;
+      return rows.map((r) => {
+        while (
+          idx + 1 < voltageSeries.length &&
+          voltageSeries[idx + 1].t <= r.t
+        ) {
+          idx += 1;
+        }
+        let best = voltageSeries[idx];
+        if (idx + 1 < voltageSeries.length) {
+          const next = voltageSeries[idx + 1];
+          if (Math.abs(next.t - r.t) < Math.abs(best.t - r.t)) {
+            best = next;
+          }
+        }
+        return {
+          ...r,
+          v:
+            best.v ??
+            r.v ??
+            (isChartToday ? latest?.battery_voltage : null) ??
+            null,
+        };
+      });
+    }
 
-      // Voltage-only fallback (no telemetry rows): clip voltage series to domain too.
-      const points: Row[] = voltageSeries
-        .filter((p) => p.t >= domain[0] && p.t <= domain[1])
-        .map((p) => ({
-          t: p.t,
+    // Voltage-only fallback (no telemetry rows): clip voltage series to domain too.
+    const points: Row[] = voltageSeries
+      .filter((p) => p.t >= domain[0] && p.t <= domain[1])
+      .map((p) => ({
+        t: p.t,
+        soc: null,
+        pv: null,
+        load: null,
+        loadW: 0,
+        gridV: null,
+        pvToLoad: 0,
+        batteryToLoad: 0,
+        gridToLoad: 0,
+        pvToLoadW: 0,
+        pvToChargeW: 0,
+        battToLoadW: 0,
+        gridToLoadW: 0,
+        v: p.v,
+        practicalSoc: null,
+        curveGuideV: null,
+      }));
+
+    const lastPoint = points[points.length - 1];
+    const latestV = latest?.battery_voltage ?? lastPoint?.v ?? null;
+    if (isChartToday && latestV != null && points.length) {
+      const lastT = lastPoint?.t ?? 0;
+      if (serverNow > lastT) {
+        points.push({
+          t: serverNow,
           soc: null,
           pv: null,
           load: null,
@@ -1040,92 +1201,74 @@ export default function Charts({
           pvToChargeW: 0,
           battToLoadW: 0,
           gridToLoadW: 0,
-          v: p.v,
+          v: latestV,
           practicalSoc: null,
           curveGuideV: null,
-        }));
+        });
+      }
+    }
+    return points;
+  }, [
+    latest?.battery_voltage,
+    rows,
+    serverNow,
+    voltageSeries,
+    domain,
+    isChartToday,
+  ]);
 
-      const lastPoint = points[points.length - 1];
-      const latestV = latest?.battery_voltage ?? lastPoint?.v ?? null;
-      if (latestV != null && points.length) {
-        const lastT = lastPoint?.t ?? 0;
-        if (serverNow > lastT) {
-          points.push({
-            t: serverNow,
-            soc: null,
-            pv: null,
-            load: null,
-            loadW: 0,
-            gridV: null,
-            pvToLoad: 0,
-            batteryToLoad: 0,
-            gridToLoad: 0,
-            pvToLoadW: 0,
-            pvToChargeW: 0,
-            battToLoadW: 0,
-            gridToLoadW: 0,
-            v: latestV,
-            practicalSoc: null,
-            curveGuideV: null,
-          });
+  const batteryRows = useMemo(() => {
+    if (!voltRows.length) return [];
+    const minT = voltRows[0].t;
+    const maxT = voltRows[voltRows.length - 1].t;
+    const span = Math.max(1, maxT - minT);
+    const halfWindowMs = (PRACTICAL_SOC_SMOOTHING_MINUTES * 60 * 1000) / 2;
+    return voltRows.map((r, i) => {
+      // "Pretend" hidden SOC axis: peg 0% -> 100% linearly across the visible time window.
+      const windowSoc = ((r.t - minT) / span) * 100;
+      // Centered 15-min moving AVERAGE of voltage. A mean (not median) is used
+      // here on purpose: voltage is quantized to 0.2V steps, so a median just
+      // re-picks one of those discrete levels and the line stays stepped. The
+      // mean produces in-between voltages (e.g. 25.5V) that map to a smooth %.
+      const lo = r.t - halfWindowMs;
+      const hi = r.t + halfWindowMs;
+      let sum = 0;
+      let count = 0;
+      for (let j = i; j >= 0 && voltRows[j].t >= lo; j--) {
+        const vj = voltRows[j].v;
+        if (vj != null && Number.isFinite(vj)) {
+          sum += vj;
+          count += 1;
         }
       }
-      return points;
-    },
-    [latest?.battery_voltage, rows, serverNow, voltageSeries, domain]
-  );
-
-  const batteryRows = useMemo(
-    () => {
-      if (!voltRows.length) return [];
-      const minT = voltRows[0].t;
-      const maxT = voltRows[voltRows.length - 1].t;
-      const span = Math.max(1, maxT - minT);
-      const halfWindowMs = (PRACTICAL_SOC_SMOOTHING_MINUTES * 60 * 1000) / 2;
-      return voltRows.map((r, i) => {
-        // "Pretend" hidden SOC axis: peg 0% -> 100% linearly across the visible time window.
-        const windowSoc = ((r.t - minT) / span) * 100;
-        // Centered 15-min moving AVERAGE of voltage. A mean (not median) is used
-        // here on purpose: voltage is quantized to 0.2V steps, so a median just
-        // re-picks one of those discrete levels and the line stays stepped. The
-        // mean produces in-between voltages (e.g. 25.5V) that map to a smooth %.
-        const lo = r.t - halfWindowMs;
-        const hi = r.t + halfWindowMs;
-        let sum = 0;
-        let count = 0;
-        for (let j = i; j >= 0 && voltRows[j].t >= lo; j--) {
-          const vj = voltRows[j].v;
-          if (vj != null && Number.isFinite(vj)) {
-            sum += vj;
-            count += 1;
-          }
+      for (let j = i + 1; j < voltRows.length && voltRows[j].t <= hi; j++) {
+        const vj = voltRows[j].v;
+        if (vj != null && Number.isFinite(vj)) {
+          sum += vj;
+          count += 1;
         }
-        for (let j = i + 1; j < voltRows.length && voltRows[j].t <= hi; j++) {
-          const vj = voltRows[j].v;
-          if (vj != null && Number.isFinite(vj)) {
-            sum += vj;
-            count += 1;
-          }
-        }
-        const smoothedV = count ? sum / count : r.v;
-        return {
-          ...r,
-          practicalSoc: practicalSocPct(smoothedV),
-          curveGuideV: voltageForPracticalSoc(windowSoc),
-        };
-      });
-    },
-    [voltRows]
-  );
+      }
+      const smoothedV = count ? sum / count : r.v;
+      return {
+        ...r,
+        practicalSoc: practicalSocPct(smoothedV),
+        curveGuideV: voltageForPracticalSoc(windowSoc),
+      };
+    });
+  }, [voltRows]);
 
   const voltDomain = useMemo<
-    [number | ((v: number) => number), number | ((v: number) => number)] | undefined
+    | [number | ((v: number) => number), number | ((v: number) => number)]
+    | undefined
   >(() => {
     const vThVals = voltageThresholds.map((t) => t.value);
     const vMin = vThVals.length ? Math.min(...vThVals) : null;
     const vMax = vThVals.length ? Math.max(...vThVals) : null;
     return vMin != null && vMax != null
-      ? [(min: number) => Math.min(min, vMin) - 0.3, (max: number) => Math.max(max, vMax) + 0.3]
+      ? [
+          (min: number) => Math.min(min, vMin) - 0.3,
+          (max: number) => Math.max(max, vMax) + 0.3,
+        ]
       : undefined;
   }, [voltageThresholds]);
 
@@ -1135,7 +1278,10 @@ export default function Charts({
   // smoothed gauge and the (centered-mean) plotted trend line.
   const smoothedLatestVoltage = meanVoltage(
     [
-      ...(voltage?.points ?? []).map((p) => ({ t: p.sampled_at, v: p.battery_voltage })),
+      ...(voltage?.points ?? []).map((p) => ({
+        t: p.sampled_at,
+        v: p.battery_voltage,
+      })),
       ...(latest ? [{ t: latest.polled_at, v: latest.battery_voltage }] : []),
     ],
     latest?.polled_at,
@@ -1143,120 +1289,113 @@ export default function Charts({
   const latestPracticalSoc = practicalSocPct(
     smoothedLatestVoltage ?? latest?.battery_voltage,
   );
+  const lastBatteryRow = batteryRows[batteryRows.length - 1];
+  const displayedReading = isChartToday
+    ? latest
+    : (history?.points ?? [])
+        .filter(
+          (p) =>
+            p.polled_at * 1000 >= domain[0] && p.polled_at * 1000 <= domain[1],
+        )
+        .slice(-1)[0];
+  const displayedSoc = isChartToday
+    ? latestPracticalSoc
+    : lastBatteryRow?.practicalSoc;
+  const displayedVoltage = isChartToday
+    ? latest?.battery_voltage
+    : lastBatteryRow?.v;
+  const gridVoltage = displayedReading?.grid_voltage ?? null;
+  const gridVoltageColor =
+    gridVoltage != null && gridVoltage < GRID_LOW_VOLTAGE_V ? C.bad : C.grid;
 
   return (
-    <section className="mt-6 animate-[fadein_0.5s_ease_both]">
-      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 sm:mb-3">
-        <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
-          <LineChart size={14} strokeWidth={1.8} /> Trends
-        </h2>
-        <div className="inline-flex items-center gap-2">
-          {/* Range window buttons — only meaningful when viewing live (today) data.
-              Clicking one resets the date back to today. */}
-          <div className="inline-flex overflow-hidden rounded-card border border-line">
+    <section className="charts-section" aria-label="Energy trends">
+      <SectionHeading
+        title="Trends"
+        description={isChartToday ? "GMT+7" : "Period-end values · GMT+7"}
+      >
+        <div className="range-controls">
+          <div className="range-buttons" aria-label="Time range">
             {RANGES.map((r) => (
               <button
                 key={r.key}
-                className={`border-r border-line px-2 py-1.5 font-mono text-xs transition-colors last:border-r-0 sm:px-2.5 ${
-                  isChartToday && range === r.key
-                    ? "bg-panel-hi text-solar"
-                    : "bg-panel text-dim hover:border-line-hi hover:text-text"
-                }`}
-                title={r.title}
+                aria-pressed={isChartToday && range === r.key}
                 onClick={() => {
                   setRange(r.key);
-                  setChartDate(today); // always jump back to live when a range is chosen
+                  setChartDate(today);
                 }}
               >
                 {r.label}
               </button>
             ))}
           </div>
-
-          {/* Separator */}
-          <div className="h-5 w-px bg-line" />
-
-          {/* Date navigator — arrows always clickable; date text fades when not driving the view. */}
-          <div className="inline-flex items-center gap-1">
-            <button
-              className="grid h-6.5 w-6.5 cursor-pointer place-items-center rounded-card border border-line bg-panel p-0 text-base leading-none text-dim transition-colors hover:border-line-hi hover:text-text"
-              onClick={() => {
-                setChartDate(offsetDate(chartDate, -1));
-                setRange("today"); // past-day view is always full-day
-              }}
-              title="Previous day"
-            >
-              ‹
-            </button>
-            <span
-              className="inline-flex min-w-14 items-center justify-center font-mono text-xs tabular-nums transition-opacity"
-              style={{ color: isChartToday ? C.charge : C.textDim, opacity: range !== "today" ? 0.45 : 1 }}
-            >
-              {formatDayShort(chartDate)}
-            </span>
-            <button
-              className={`grid h-6.5 w-6.5 place-items-center rounded-card border bg-panel p-0 text-base leading-none transition-colors ${
-                !canGoNext
-                  ? "cursor-default border-line text-dim opacity-30"
-                  : "cursor-pointer border-line text-dim hover:border-line-hi hover:text-text"
-              }`}
-              onClick={() => {
-                if (!canGoNext) return;
-                const next = offsetDate(chartDate, 1);
-                setChartDate(next);
-                if (next !== today) setRange("today"); // still a past day → full-day view
-              }}
-              title="Next day"
-              disabled={!canGoNext}
-            >
-              ›
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-3.5">
-        <CombinedSocChart
-          data={batteryRows}
-          currentPractical={cur(latestPracticalSoc, 0)}
-          currentReported={cur(latest?.battery_soc, 0)}
-          domain={domain}
-        />
-        <PackVoltageChart
-          data={batteryRows}
-          currentVoltage={cur(latest?.battery_voltage, 1)}
-          currentPractical={cur(latestPracticalSoc, 0)}
-          domain={domain}
-          yDomain={voltDomain}
-          thresholds={voltageThresholds}
-        />
-        <SolarGenerationChart
-          data={rows}
-          currentSolar={cur(latest?.pv_power, 0)}
-          currentLoad={cur(latest?.load_power == null ? null : latest.load_power * 1000, 0)}
-          domain={domain}
-        />
-        <MetricChart
-          title="Grid voltage"
-          data={rows}
-          dataKey="gridV"
-          color={gridVoltageColor}
-          unit="V"
-          digits={0}
-          current={cur(gridVoltage, 0)}
-          danger={{ from: 0, to: GRID_LOW_VOLTAGE_V }}
-          domain={domain}
-        />
-        <div className="lg:col-span-2">
-          <SolarLoadChart
-            data={rows}
-            currentPvToLoad={cur(latest?.pv_to_load_kw, 1)}
-            currentBattToLoad={cur(latest?.battery_to_load_kw, 1)}
-            currentGridToLoad={cur(latest?.grid_to_load_kw, 1)}
-            domain={domain}
+          <DateNavigator
+            date={chartDate}
+            onChange={(date) => {
+              setChartDate(date);
+              setRange("today");
+            }}
           />
         </div>
-      </div>
+      </SectionHeading>
+      {!history && !voltage && loading ? (
+        <div className="page-loading" role="status">
+          Loading historical readings…
+        </div>
+      ) : !rows.length && !batteryRows.length ? (
+        <EmptyState
+          title="No readings in this period"
+          description="Choose another date or a longer time range."
+        />
+      ) : (
+        <div className="chart-grid">
+          <CombinedSocChart
+            data={batteryRows}
+            currentPractical={cur(displayedSoc, 0)}
+            currentReported={cur(displayedReading?.battery_soc, 0)}
+            domain={domain}
+          />
+          <PackVoltageChart
+            data={batteryRows}
+            currentVoltage={cur(displayedVoltage, 1)}
+            currentPractical={cur(displayedSoc, 0)}
+            domain={domain}
+            yDomain={voltDomain}
+            thresholds={voltageThresholds}
+          />
+          <SolarGenerationChart
+            data={rows}
+            currentSolar={cur(displayedReading?.pv_power, 0)}
+            currentLoad={cur(
+              displayedReading?.load_power == null
+                ? null
+                : displayedReading.load_power * 1000,
+              0,
+            )}
+            domain={domain}
+          />
+          <MetricChart
+            title="Grid voltage"
+            data={rows}
+            dataKey="gridV"
+            color={gridVoltageColor}
+            unit="V"
+            digits={0}
+            current={cur(gridVoltage, 0)}
+            danger={{ from: 0, to: GRID_LOW_VOLTAGE_V }}
+            domain={domain}
+          />
+          <div className="lg:col-span-2">
+            <SolarLoadChart
+              data={rows}
+              currentPvToLoad={cur(displayedReading?.pv_to_load_kw, 1)}
+              currentBattToLoad={cur(displayedReading?.battery_to_load_kw, 1)}
+              currentGridToLoad={cur(displayedReading?.grid_to_load_kw, 1)}
+              domain={domain}
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }

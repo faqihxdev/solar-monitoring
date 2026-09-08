@@ -1,5 +1,6 @@
 import { config } from "./env";
 import { DessmonitorApiError, DessmonitorClient } from "./dessClient";
+import { ShutdownCoordinator, installProcessShutdownHandlers, interruptibleDelay } from "./lifecycle";
 import { TelemetryStore } from "./store";
 import { syncTodayVoltageReadings, syncVoltageForHours } from "./syncVoltage";
 import type { DeviceSettings, JsonRecord } from "./types";
@@ -11,10 +12,6 @@ const settings: Required<DeviceSettings> = {
   devaddr: config.devaddr,
   i18n: config.i18n,
 };
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function clock(): string {
   return new Date().toLocaleTimeString(undefined, { hour12: false });
@@ -79,16 +76,26 @@ function logNoRecordError(error: DessmonitorApiError): void {
 async function querySnapshotWithRetry(
   client: DessmonitorClient,
   pollSettings: Required<DeviceSettings>,
-): Promise<{ lastPayload: JsonRecord; flowPayload: JsonRecord }> {
+  shutdownSignal: AbortSignal,
+): Promise<{ lastPayload: JsonRecord; flowPayload: JsonRecord } | null> {
   try {
     const lastPayload = await client.queryDeviceLastData(pollSettings);
+    if (shutdownSignal.aborted) return null;
     const flowPayload = await client.queryDeviceEnergyFlow(pollSettings);
     return { lastPayload, flowPayload };
   } catch (exc) {
     if (!(exc instanceof DessmonitorApiError) || exc.code !== 12) throw exc;
     logNoRecordError(exc);
-    if (noRecordRetryDelayMs > 0) await sleep(noRecordRetryDelayMs);
+    if (shutdownSignal.aborted) return null;
+    if (
+      noRecordRetryDelayMs > 0 &&
+      (await interruptibleDelay(noRecordRetryDelayMs, shutdownSignal)) === "aborted"
+    ) {
+      return null;
+    }
+    if (shutdownSignal.aborted) return null;
     const lastPayload = await client.queryDeviceLastData(pollSettings);
+    if (shutdownSignal.aborted) return null;
     const flowPayload = await client.queryDeviceEnergyFlow(pollSettings);
     return { lastPayload, flowPayload };
   }
@@ -96,6 +103,21 @@ async function querySnapshotWithRetry(
 
 const client = new DessmonitorClient(config.usr, config.pwd, config.companyKey);
 const store = await TelemetryStore.open(config.dbPath);
+let finishPolling!: () => void;
+const pollingFinished = new Promise<void>((resolve) => {
+  finishPolling = resolve;
+});
+const shutdown = new ShutdownCoordinator({
+  drain: (signal) => {
+    console.log(`[shutdown] ${signal} received; finishing the active poll`);
+    return pollingFinished;
+  },
+  close: () => {
+    store.close();
+    console.log("[shutdown] poller database connection closed");
+  },
+});
+const removeShutdownHandlers = installProcessShutdownHandlers(shutdown);
 
 console.log(`Polling device ${settings.sn} every ${intervalMs / 1000}s`);
 console.log("Sources: querySPDeviceLastData + webQueryDeviceEnergyFlowEs");
@@ -108,50 +130,74 @@ console.log(
 console.log(`Database: ${config.dbPath}`);
 console.log("Press Ctrl+C to stop.\n");
 
-let lastDetailsSync = Date.now();
-if (backfillOnStart) {
-  try {
-    await ensureSession(client, store);
-    const count = await syncVoltageForHours(client, store, settings, backfillHours);
-    if (count) console.log(`[${clock()}] voltage backfill: ${count} row(s)`);
-  } catch (exc) {
-    console.error(`[${clock()}] voltage backfill skipped: ${String(exc)}`);
-  }
-}
-
-while (true) {
-  try {
-    await ensureSession(client, store);
-    const { lastPayload, flowPayload } = await querySnapshotWithRetry(client, settings);
-    const lastData = (lastPayload.dat ?? {}) as JsonRecord;
-    const energyFlow = (flowPayload.dat ?? {}) as JsonRecord;
-    const payload = store.buildPayload(lastData, energyFlow);
-    const changed = store.saveIfChanged(settings.sn, payload);
-    const summary = formatLogLine(payload.gts, (payload.readings ?? {}) as JsonRecord);
-    if (changed) {
-      console.log(`[${clock()}] CHANGE saved (${summary}, total=${store.snapshotCount(settings.sn)})`);
-    } else {
-      console.log(`[${clock()}] unchanged (${summary})`);
+try {
+  let lastDetailsSync = Date.now();
+  if (backfillOnStart && !shutdown.requested) {
+    try {
+      await ensureSession(client, store);
+      if (!shutdown.requested) {
+        const count = await syncVoltageForHours(client, store, settings, backfillHours, {
+          signal: shutdown.signal,
+        });
+        if (count) console.log(`[${clock()}] voltage backfill: ${count} row(s)`);
+      }
+    } catch (exc) {
+      console.error(`[${clock()}] voltage backfill skipped: ${String(exc)}`);
     }
+  }
 
-    const now = Date.now();
-    if (now - lastDetailsSync >= detailsIntervalMs) {
-      const count = await syncTodayVoltageReadings(client, store, settings);
-      lastDetailsSync = now;
-      if (count) {
-        const latest = store.latestVoltage(settings.sn);
-        console.log(
-          `[${clock()}] voltage sync: ${count} row(s), latest ${latest?.battery_voltage ?? "n/a"} V`,
-        );
+  while (!shutdown.requested) {
+    try {
+      await ensureSession(client, store);
+      if (shutdown.requested) break;
+      const snapshot = await querySnapshotWithRetry(client, settings, shutdown.signal);
+      if (!snapshot) break;
+      const { lastPayload, flowPayload } = snapshot;
+      const lastData = (lastPayload.dat ?? {}) as JsonRecord;
+      const energyFlow = (flowPayload.dat ?? {}) as JsonRecord;
+      const payload = store.buildPayload(lastData, energyFlow);
+      const changed = store.saveIfChanged(settings.sn, payload);
+      const summary = formatLogLine(payload.gts, (payload.readings ?? {}) as JsonRecord);
+      if (changed) {
+        console.log(`[${clock()}] CHANGE saved (${summary}, total=${store.snapshotCount(settings.sn)})`);
+      } else {
+        console.log(`[${clock()}] unchanged (${summary})`);
+      }
+
+      const now = Date.now();
+      if (!shutdown.requested && now - lastDetailsSync >= detailsIntervalMs) {
+        const count = await syncTodayVoltageReadings(client, store, settings, {
+          signal: shutdown.signal,
+        });
+        lastDetailsSync = now;
+        if (count) {
+          const latest = store.latestVoltage(settings.sn);
+          console.log(
+            `[${clock()}] voltage sync: ${count} row(s), latest ${latest?.battery_voltage ?? "n/a"} V`,
+          );
+        }
+      }
+    } catch (exc) {
+      if (exc instanceof DessmonitorApiError) {
+        if (exc.code === 12) logNoRecordError(exc);
+        else console.error(`[${clock()}] API error: ${exc.message}`);
+      } else {
+        console.error(`[${clock()}] error: ${String(exc)}`);
       }
     }
-  } catch (exc) {
-    if (exc instanceof DessmonitorApiError) {
-      if (exc.code === 12) logNoRecordError(exc);
-      else console.error(`[${clock()}] API error: ${exc.message}`);
-    } else {
-      console.error(`[${clock()}] error: ${String(exc)}`);
-    }
+    await interruptibleDelay(intervalMs, shutdown.signal);
   }
-  await sleep(intervalMs);
+} finally {
+  finishPolling();
 }
+
+if (shutdown.requested) {
+  try {
+    await shutdown.done;
+  } catch {
+    process.exitCode = 1;
+  }
+} else {
+  store.close();
+}
+removeShutdownHandlers();

@@ -29,12 +29,13 @@ export async function syncVoltageForDate(
   store: TelemetryStore,
   settings: DeviceSettings,
   date: string,
-  options: { maxPages?: number; pagesize?: number } = {},
+  options: { maxPages?: number; pagesize?: number; signal?: AbortSignal } = {},
 ): Promise<number> {
   const pagesize = options.pagesize ?? 50;
   const maxPages = options.maxPages ?? 32;
-  let total = 0;
+  const detailsPages: JsonRecord[] = [];
   for (let page = 0; page < maxPages; page += 1) {
+    if (options.signal?.aborted) break;
     const payload = await client.queryDeviceDataOneDayPaging({
       ...settings,
       date,
@@ -42,11 +43,11 @@ export async function syncVoltageForDate(
       pagesize,
     });
     const dat = (payload.dat ?? {}) as JsonRecord;
-    total += store.syncDetailsVoltage(settings.sn, dat);
+    detailsPages.push(dat);
     const rows = Array.isArray(dat.row) ? dat.row : [];
-    if (rows.length < pagesize) break;
+    if (rows.length < pagesize || options.signal?.aborted) break;
   }
-  return total;
+  return detailsPages.length ? store.syncDetailsVoltagePages(settings.sn, detailsPages) : 0;
 }
 
 export async function syncVoltageForHours(
@@ -54,11 +55,13 @@ export async function syncVoltageForHours(
   store: TelemetryStore,
   settings: DeviceSettings,
   hours = 24,
+  options: { signal?: AbortSignal } = {},
 ): Promise<number> {
   store.purgeFutureVoltageReadings(settings.sn);
   let total = 0;
   for (const date of datesForHours(hours)) {
-    total += await syncVoltageForDate(client, store, settings, date);
+    if (options.signal?.aborted) break;
+    total += await syncVoltageForDate(client, store, settings, date, options);
   }
   return total;
 }
@@ -67,7 +70,8 @@ export async function syncTodayVoltageReadings(
   client: DessmonitorClient,
   store: TelemetryStore,
   settings: DeviceSettings,
+  options: { signal?: AbortSignal } = {},
 ): Promise<number> {
   store.purgeFutureVoltageReadings(settings.sn);
-  return syncVoltageForDate(client, store, settings, localDateKey(Date.now()));
+  return syncVoltageForDate(client, store, settings, localDateKey(Date.now()), options);
 }

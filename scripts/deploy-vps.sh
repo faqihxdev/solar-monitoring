@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/deploy-vps.sh [--auto|--ui-only|--restart-api|--restart-poller|--restart-both] [--dry-run] [--skip-public-check]
+Usage: scripts/deploy-vps.sh [--auto|--ui-only|--restart-api|--restart-poller|--restart-both] [--update-nginx-timeouts] [--dry-run] [--skip-public-check]
 
 Deploy the app to the solar-system VPS using the local deployment recipe.
 
@@ -16,6 +16,12 @@ Restart overrides:
   --restart-poller  Restart solar-poller only.
   --restart-both    Restart both solar-api and solar-poller.
 
+Shared Nginx:
+  --update-nginx-timeouts
+                    Explicitly update Solar's API proxy timeouts and reload
+                    shared Nginx after a successful nginx -t. The default
+                    deployment never changes or reloads Nginx.
+
 Environment overrides:
   DESS_DEPLOY_SSH_BIN         SSH binary. Default: /mnt/c/Windows/System32/OpenSSH/ssh.exe
   DESS_DEPLOY_SSH_HOST        SSH host alias. Default: your-vps-host
@@ -23,6 +29,9 @@ Environment overrides:
   DESS_DEPLOY_PUBLIC_URL      Public URL. Default: https://your-domain.example
   DESS_DEPLOY_ORIGIN_HOST_HEADER  Origin Host header for local curl checks. Default: your-domain.example
   DESS_DEPLOY_NGINX_SITE_PATH Nginx site file path. Default: /etc/nginx/sites-enabled/your-domain.example
+  DESS_DEPLOY_READY_PATH      Solar readiness path. Default: /api/ready
+  DESS_DEPLOY_READY_ATTEMPTS  Number of readiness attempts. Default: 12
+  DESS_DEPLOY_READY_DELAY     Seconds between readiness attempts. Default: 2
 EOF
 }
 
@@ -50,6 +59,26 @@ run() {
 
 run_remote() {
   run "$SSH_BIN" "$SSH_HOST" "$@"
+}
+
+capture_remote() {
+  printf '+' >&2
+  printf ' %q' "$SSH_BIN" "$SSH_HOST" "$@" >&2
+  printf '\n' >&2
+  "$SSH_BIN" "$SSH_HOST" "$@"
+}
+
+validate_target() {
+  [[ "$SSH_HOST" == "utf-sh" ]] || die "refusing non-production SSH target: ${SSH_HOST}"
+  [[ "$REMOTE_APP_DIR" == "/opt/solar-system/app" ]] || die "refusing non-Solar app target: ${REMOTE_APP_DIR}"
+  [[ "$PUBLIC_URL" == "https://solar.utf.sh" ]] || die "refusing non-Solar public URL: ${PUBLIC_URL}"
+  [[ "$ORIGIN_HOST_HEADER" == "solar.utf.sh" ]] || die "refusing non-Solar origin Host header: ${ORIGIN_HOST_HEADER}"
+  [[ "$NGINX_SITE_PATH" == "/etc/nginx/sites-enabled/solar-utf-sh" ]] || die "refusing non-Solar Nginx site: ${NGINX_SITE_PATH}"
+  [[ "$READY_PATH" =~ ^/api/[A-Za-z0-9._~/-]+$ ]] || die "invalid readiness path: ${READY_PATH}"
+  [[ "$READY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || die "readiness attempts must be a positive integer"
+  (( READY_ATTEMPTS <= 12 )) || die "readiness attempts must be 12 or fewer"
+  [[ "$READY_DELAY" =~ ^(0|[1-9][0-9]*)$ ]] || die "readiness delay must be a non-negative integer"
+  (( READY_DELAY <= 2 )) || die "readiness delay must be 2 seconds or fewer"
 }
 
 collect_changed_paths() {
@@ -250,6 +279,63 @@ PY
 nginx -t && systemctl reload nginx"
 }
 
+preflight_shared_host() {
+  log "Checking Solar target and shared-host dependencies"
+  capture_remote "set -eu
+hostnamectl --static | grep -Fx 'utf-sh' >/dev/null
+readlink -f -- '/opt/solar-system/app' | grep -Fx '/opt/solar-system/app' >/dev/null
+stat -c '%U:%G' -- '/opt/solar-system/app' | grep -Fx 'solar:solar' >/dev/null
+systemctl show solar-api.service -p User --value | grep -Fx 'solar' >/dev/null
+systemctl show solar-api.service -p WorkingDirectory --value | grep -Fx '/opt/solar-system/app' >/dev/null
+systemctl show solar-poller.service -p User --value | grep -Fx 'solar' >/dev/null
+systemctl show solar-poller.service -p WorkingDirectory --value | grep -Fx '/opt/solar-system/app' >/dev/null
+readlink -f -- '/etc/nginx/sites-enabled/solar-utf-sh' | grep -Fx '/etc/nginx/sites-available/solar-utf-sh' >/dev/null
+grep -Eq 'server_name[[:space:]]+solar[.]utf[.]sh;' '/etc/nginx/sites-enabled/solar-utf-sh'
+grep -Eq 'proxy_pass[[:space:]]+http://127[.]0[.]0[.]1:43871;' '/etc/nginx/sites-enabled/solar-utf-sh'
+grep -lEq 'server_name[[:space:]]+kebun[.]utf[.]sh;' /etc/nginx/sites-enabled/*
+systemctl is-active --quiet nginx.service kebun.service
+nginx -t
+timeout 8 curl -kfsS --connect-timeout 3 --max-time 8 -o /dev/null --resolve 'kebun.utf.sh:443:127.0.0.1' 'https://kebun.utf.sh/'" >/dev/null
+}
+
+capture_protected_state() {
+  capture_remote "set -eu
+systemctl show nginx.service kebun.service -p Id -p ActiveState -p SubState -p MainPID -p NRestarts -p ExecMainStartTimestampMonotonic --no-pager
+find /etc/nginx/sites-enabled -mindepth 1 -maxdepth 1 ! -name solar-utf-sh -printf '%f|%y|%l\n' | sort
+find /etc/nginx/sites-enabled -mindepth 1 -maxdepth 1 ! -name solar-utf-sh -print0 | sort -z | xargs -0 -r sha256sum"
+}
+
+verify_protected_state() {
+  local current_state
+  if ! current_state="$(capture_protected_state)"; then
+    warn "could not verify protected Kebun/Nginx state"
+    return 1
+  fi
+
+  if [[ "$current_state" != "$PROTECTED_STATE_BASELINE" ]]; then
+    warn "Kebun or shared Nginx changed during the Solar deployment"
+    diff -u \
+      <(printf '%s\n' "$PROTECTED_STATE_BASELINE") \
+      <(printf '%s\n' "$current_state") >&2 || true
+    return 1
+  fi
+
+  PROTECTED_STATE_CHECKED=1
+}
+
+verify_protected_state_on_exit() {
+  local exit_status="$?"
+  trap - EXIT
+
+  if [[ -n "$PROTECTED_STATE_BASELINE" && "$PROTECTED_STATE_CHECKED" == "0" ]]; then
+    if ! verify_protected_state; then
+      exit_status=1
+    fi
+  fi
+
+  exit "$exit_status"
+}
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 APP_DIR="${ROOT_DIR}/app"
@@ -260,16 +346,22 @@ REMOTE_APP_DIR="${DESS_DEPLOY_REMOTE_APP_DIR:-/opt/solar-system/app}"
 PUBLIC_URL="${DESS_DEPLOY_PUBLIC_URL:-https://your-domain.example}"
 ORIGIN_HOST_HEADER="${DESS_DEPLOY_ORIGIN_HOST_HEADER:-your-domain.example}"
 NGINX_SITE_PATH="${DESS_DEPLOY_NGINX_SITE_PATH:-/etc/nginx/sites-enabled/your-domain.example}"
+READY_PATH="${DESS_DEPLOY_READY_PATH:-/api/ready}"
+READY_ATTEMPTS="${DESS_DEPLOY_READY_ATTEMPTS:-12}"
+READY_DELAY="${DESS_DEPLOY_READY_DELAY:-2}"
 PUBLIC_CONNECT_TIMEOUT="${DESS_DEPLOY_PUBLIC_CONNECT_TIMEOUT:-5}"
 PUBLIC_MAX_TIME="${DESS_DEPLOY_PUBLIC_MAX_TIME:-20}"
 
 RESTART_MODE="auto"
 DRY_RUN=0
 SKIP_PUBLIC_CHECK=0
+UPDATE_NGINX_TIMEOUTS=0
 CLASSIFY_REASON=""
 INSTALL_REASON=""
 NEEDS_INSTALL=0
 CHANGED_PATHS=()
+PROTECTED_STATE_BASELINE=""
+PROTECTED_STATE_CHECKED=0
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -287,6 +379,9 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --restart-both)
       RESTART_MODE="both"
+      ;;
+    --update-nginx-timeouts)
+      UPDATE_NGINX_TIMEOUTS=1
       ;;
     --dry-run)
       DRY_RUN=1
@@ -311,6 +406,7 @@ command -v pnpm >/dev/null 2>&1 || die "pnpm is not available locally"
 command -v rsync >/dev/null 2>&1 || die "rsync is not available locally"
 [[ -x "$SSH_BIN" || -n "$(command -v "$SSH_BIN" 2>/dev/null)" ]] || die "SSH binary not found or not executable: $SSH_BIN"
 
+validate_target
 decide_restart_mode
 decide_install_mode
 
@@ -318,21 +414,36 @@ log "Deploy target"
 printf 'SSH host: %s\n' "$SSH_HOST"
 printf 'Remote app: %s\n' "$REMOTE_APP_DIR"
 printf 'Nginx site: %s\n' "$NGINX_SITE_PATH"
+printf 'Readiness: %s (%s attempts, %ss delay)\n' "$READY_PATH" "$READY_ATTEMPTS" "$READY_DELAY"
 printf 'Restart: %s (%s)\n' "$RESTART_MODE" "$CLASSIFY_REASON"
 printf 'Remote install: %s (%s)\n' "$NEEDS_INSTALL" "$INSTALL_REASON"
+printf 'Update shared Nginx: %s\n' "$UPDATE_NGINX_TIMEOUTS"
 
 if [[ "${#CHANGED_PATHS[@]}" -gt 0 ]]; then
   log "Changed paths considered"
   printf '%s\n' "${CHANGED_PATHS[@]}"
 fi
 
+preflight_shared_host
+
+PROTECTED_STATE_BASELINE="$(capture_protected_state)"
+trap verify_protected_state_on_exit EXIT
+
 log "Building locally"
 run bash -lc "cd $(printf '%q' "$APP_DIR") && pnpm build"
 
 log "Syncing app source"
 run rsync -az \
+  --chown 'solar:solar' \
+  --chmod 'Du=rwx,Dgo=rx,Fu=rw,Fgo=r' \
   --exclude 'node_modules' \
   --exclude 'dist' \
+  --exclude 'test-results' \
+  --exclude 'playwright-report' \
+  --exclude '.vite' \
+  --exclude '*.tsbuildinfo' \
+  --exclude 'temp' \
+  --exclude 'tmp' \
   --exclude '.env' \
   --exclude '.env.*' \
   --exclude 'data' \
@@ -346,14 +457,46 @@ if [[ "$NEEDS_INSTALL" == "1" ]]; then
 fi
 
 log "Building on VPS"
-run_remote "chown -R solar:solar ${remote_app_dir_q} && sudo -u solar bash -lc $(printf '%q' "$remote_build_cmd")"
+run_remote "sudo -u solar bash -lc $(printf '%q' "$remote_build_cmd")"
 
 restart_services
 
-ensure_nginx_timeouts
+if [[ "$UPDATE_NGINX_TIMEOUTS" == "1" ]]; then
+  ensure_nginx_timeouts
+else
+  log "Leaving shared Nginx unchanged"
+fi
 
-log "Verifying VPS origin"
-run_remote "systemctl is-active solar-api solar-poller nginx && timeout 8 curl --connect-timeout 3 -sS -o /dev/null -w '%{http_code} %{content_type}\n' -H $(printf '%q' "Host: ${ORIGIN_HOST_HEADER}") http://127.0.0.1/"
+log "Verifying Solar readiness and shared-host continuity"
+run_remote "set -eu
+systemctl is-active --quiet solar-api.service solar-poller.service nginx.service kebun.service
+nginx -t
+timeout 8 curl -kfsS --connect-timeout 3 --max-time 8 -o /dev/null --resolve 'kebun.utf.sh:443:127.0.0.1' 'https://kebun.utf.sh/'
+timeout 8 curl -fsS --connect-timeout 3 --max-time 8 -o /dev/null -H $(printf '%q' "Host: ${ORIGIN_HOST_HEADER}") 'http://127.0.0.1/'
+attempt=1
+successes=0
+while [ \"\$attempt\" -le ${READY_ATTEMPTS} ]; do
+  status=\$(timeout 3 curl -sS --connect-timeout 1 --max-time 3 -o /dev/null -w '%{http_code}' -H $(printf '%q' "Host: ${ORIGIN_HOST_HEADER}") 'http://127.0.0.1${READY_PATH}' || true)
+  if [ \"\$status\" = '200' ]; then
+    successes=\$((successes + 1))
+    if [ \"\$successes\" -ge 3 ]; then
+      test \"\$(systemctl show solar-api.service -p NRestarts --value)\" = '0'
+      test \"\$(systemctl show solar-poller.service -p NRestarts --value)\" = '0'
+      exit 0
+    fi
+  else
+    successes=0
+  fi
+  if [ \"\$attempt\" -lt ${READY_ATTEMPTS} ]; then
+    sleep ${READY_DELAY}
+  fi
+  attempt=\$((attempt + 1))
+done
+printf 'Solar readiness check failed after %s attempts\n' '${READY_ATTEMPTS}' >&2
+exit 1"
+
+verify_protected_state || die "protected shared-host state changed"
+trap - EXIT
 
 if [[ "$SKIP_PUBLIC_CHECK" == "0" ]]; then
   log "Verifying public Cloudflare Access response"

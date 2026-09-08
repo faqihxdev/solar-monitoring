@@ -5,6 +5,8 @@ import { TelemetryStore } from "./store";
 import { refreshThresholdControls, thresholdCatalogFromControls } from "./thresholds";
 import { ControlService } from "./controlService";
 import { AutomationEngine } from "./automation";
+import { ShutdownCoordinator, installProcessShutdownHandlers } from "./lifecycle";
+import { checkReadiness } from "./readiness";
 import type { DeviceSettings, JsonRecord } from "./types";
 
 const HISTORY_POINT_FIELDS = [
@@ -81,6 +83,7 @@ function makeDessClient(): DessmonitorClient {
 let thresholdRefreshRunning = false;
 let lastThresholdRefreshAttemptMs = 0;
 let lastThresholdRefreshSuccessMs = 0;
+let thresholdRefreshPromise: Promise<void> | null = null;
 
 function maybeRefreshThresholds(source: string): boolean {
   const now = Date.now();
@@ -90,7 +93,7 @@ function maybeRefreshThresholds(source: string): boolean {
   thresholdRefreshRunning = true;
   lastThresholdRefreshAttemptMs = now;
 
-  void refreshThresholdControls(makeDessClient(), settings, controlStore, config.sn)
+  const refreshPromise = refreshThresholdControls(makeDessClient(), settings, controlStore, config.sn)
     .then((result) => {
       if (result.fields_read > 0) lastThresholdRefreshSuccessMs = Date.now();
       const failed = result.errors.length ? `, ${result.errors.length} error(s)` : "";
@@ -101,7 +104,10 @@ function maybeRefreshThresholds(source: string): boolean {
     })
     .finally(() => {
       thresholdRefreshRunning = false;
+      if (thresholdRefreshPromise === refreshPromise) thresholdRefreshPromise = null;
     });
+  thresholdRefreshPromise = refreshPromise;
+  void refreshPromise;
 
   return true;
 }
@@ -367,6 +373,12 @@ const controlClient = makeDessClient();
 const controlService = new ControlService(controlClient, controlStore, readStore, settings);
 const automation = new AutomationEngine(readStore, controlStore, controlService, config.sn);
 const context: ApiContext = { readStore, controlStore, controlService, automation };
+const configuredReadinessMaxAge = Number(process.env.READINESS_MAX_TELEMETRY_AGE_SECONDS ?? "180");
+const readinessMaxTelemetryAgeSeconds =
+  Number.isFinite(configuredReadinessMaxAge) && configuredReadinessMaxAge > 0
+    ? configuredReadinessMaxAge
+    : 180;
+let shuttingDown = false;
 
 const server = http.createServer((req, res) => {
   void (async () => {
@@ -377,6 +389,19 @@ const server = http.createServer((req, res) => {
         return;
       }
       const method = req.method ?? "GET";
+      if (url.pathname === "/api/ready") {
+        if (method !== "GET") {
+          res.setHeader("allow", "GET");
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const readiness = checkReadiness(readStore, config.sn, {
+          maxTelemetryAgeSeconds: readinessMaxTelemetryAgeSeconds,
+          shuttingDown,
+        });
+        sendJson(res, readiness.statusCode, readiness.body);
+        return;
+      }
       const body = method === "POST" || method === "PUT" || method === "PATCH" ? await readBody(req) : {};
       const payload = await route(method, url.pathname, url.searchParams, body, context);
       if (payload == null) sendJson(res, 404, { detail: "Not Found" });
@@ -393,11 +418,12 @@ server.listen(config.apiPort, "127.0.0.1", () => {
 });
 
 let automationRunning = false;
+let automationPromise: Promise<unknown> | null = null;
 const automationIntervalMs = Number(process.env.AUTOMATION_CHECK_INTERVAL_SECONDS ?? "300") * 1000;
-setInterval(() => {
+const automationTimer = setInterval(() => {
   if (automationRunning) return;
   automationRunning = true;
-  void automation
+  const run = automation
     .evaluate("Scheduled automation check")
     .catch((exc) => {
       controlStore.addControlEvent({
@@ -411,5 +437,44 @@ setInterval(() => {
     })
     .finally(() => {
       automationRunning = false;
+      if (automationPromise === run) automationPromise = null;
     });
+  automationPromise = run;
+  void run;
 }, automationIntervalMs);
+
+function closeServer(): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function closeStores(): void {
+  const errors: unknown[] = [];
+  for (const store of [readStore, controlStore]) {
+    try {
+      store.close();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, "Failed to close API database connections");
+  console.log("[shutdown] API database connections closed");
+}
+
+const shutdown = new ShutdownCoordinator({
+  drain: async (signal) => {
+    shuttingDown = true;
+    clearInterval(automationTimer);
+    console.log(`[shutdown] ${signal} received; draining API requests`);
+    await closeServer();
+    await Promise.all([thresholdRefreshPromise, automationPromise].filter(Boolean));
+  },
+  close: closeStores,
+});
+
+installProcessShutdownHandlers(shutdown);
