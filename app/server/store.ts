@@ -1,13 +1,13 @@
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
-import initSqlJs, { type Database, type SqlJsStatic, type SqlValue } from "sql.js";
+import Database from "better-sqlite3";
 import { parseDetailsDat, type VoltageSample } from "./details";
 import { effectiveGridPower, inferEnergyFlows } from "./flows";
-import { sqlJsWasmPath } from "./env";
 import { BASELINE_A7_SINGLE_V } from "./controlCatalog";
 import type { AuthSession, JsonRecord } from "./types";
 
+type SqlValue = string | number | bigint | Buffer | null;
 type Row = Record<string, SqlValue>;
 
 export interface ControlValueRecord extends JsonRecord {
@@ -79,6 +79,8 @@ const FLAT_COLUMNS = [
   "grid_power",
   "working_state",
 ] as const;
+
+const POLL_HEARTBEAT_SECONDS = 60;
 
 function nowSeconds(): number {
   return Date.now() / 1000;
@@ -222,41 +224,163 @@ export function extractReadings(lastData?: JsonRecord | null, energyFlow?: JsonR
 export class TelemetryStore {
   static readonly FLOW_COLUMNS = FLOW_COLUMNS;
   static readonly FLOW_FLAG_COLUMNS = FLOW_FLAG_COLUMNS;
-  private static SQL: SqlJsStatic | null = null;
-  private db: Database;
+  private closed = false;
 
   private constructor(
     private readonly dbPath: string,
     private readonly readOnly: boolean,
-    db: Database,
+    private readonly db: Database.Database,
   ) {
-    this.db = db;
-    this.initDb();
+    if (!readOnly) this.initDb();
   }
 
   static async open(dbPath: string, options: { readOnly?: boolean } = {}) {
-    if (!this.SQL) {
-      this.SQL = await initSqlJs({ locateFile: sqlJsWasmPath });
+    const readOnly = Boolean(options.readOnly);
+    if (!readOnly) fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+    const db = new Database(dbPath, {
+      readonly: readOnly,
+      fileMustExist: readOnly,
+    });
+    db.pragma("busy_timeout = 5000");
+    if (readOnly) {
+      db.pragma("query_only = ON");
+    } else {
+      db.pragma("journal_mode = WAL");
+      db.pragma("synchronous = FULL");
     }
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    const data = fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : undefined;
-    return new TelemetryStore(dbPath, Boolean(options.readOnly), new this.SQL.Database(data));
+
+    return new TelemetryStore(path.resolve(dbPath), readOnly, db);
   }
 
-  private refresh(): void {
-    if (!this.readOnly || !TelemetryStore.SQL || !fs.existsSync(this.dbPath)) return;
+  close(): void {
+    if (this.closed) return;
     this.db.close();
-    this.db = new TelemetryStore.SQL.Database(fs.readFileSync(this.dbPath));
-    this.initDb();
+    this.closed = true;
   }
 
-  private flush(): void {
-    if (this.readOnly) return;
-    fs.writeFileSync(this.dbPath, Buffer.from(this.db.export()));
+  quickCheck(): boolean {
+    const rows = this.queryAll("PRAGMA quick_check");
+    return (
+      rows.length > 0 &&
+      rows.every((row) => Object.values(row).every((value) => String(value).toLowerCase() === "ok"))
+    );
+  }
+
+  compactTelemetryPayloads(options: { deviceSn?: string; vacuum?: boolean } = {}): number {
+    if (this.readOnly) throw new Error("Cannot compact telemetry payloads from a read-only store");
+
+    let lastId = 0;
+    let updated = 0;
+    const update = this.db.prepare("UPDATE telemetry_snapshots SET payload_json = ? WHERE id = ?");
+    while (true) {
+      const rows = options.deviceSn
+        ? this.queryAll(
+            `
+            SELECT id, payload_json
+            FROM telemetry_snapshots
+            WHERE device_sn = ? AND id > ?
+            ORDER BY id
+            LIMIT 500
+            `,
+            [options.deviceSn, lastId],
+          )
+        : this.queryAll(
+            `
+            SELECT id, payload_json
+            FROM telemetry_snapshots
+            WHERE id > ?
+            ORDER BY id
+            LIMIT 500
+            `,
+            [lastId],
+          );
+      if (!rows.length) break;
+
+      const updates: Array<{ id: SqlValue; payloadJson: string }> = [];
+      for (const row of rows) {
+        const payloadJson = compactExistingPayloadJson(row.payload_json);
+        if (payloadJson !== null && payloadJson !== String(row.payload_json)) {
+          updates.push({ id: row.id, payloadJson });
+        }
+      }
+      this.db.transaction(() => {
+        for (const item of updates) update.run(item.payloadJson, item.id);
+      })();
+      updated += updates.length;
+      lastId = Number(rows[rows.length - 1]?.id ?? lastId);
+    }
+
+    if (options.vacuum) {
+      this.db.pragma("wal_checkpoint(TRUNCATE)");
+      this.db.exec("VACUUM");
+    }
+    return updated;
+  }
+
+  async backup(destinationPath: string): Promise<void> {
+    if (this.closed) throw new Error("Cannot back up a closed telemetry store");
+
+    const destination = path.resolve(destinationPath);
+    if (destination === this.dbPath) throw new Error("Backup destination must differ from source");
+    const destinationDirectory = path.dirname(destination);
+    fs.mkdirSync(destinationDirectory, { recursive: true });
+    if (fs.existsSync(destination)) throw new Error(`Backup destination already exists: ${destination}`);
+
+    const temporaryPath = path.join(
+      destinationDirectory,
+      `.${path.basename(destination)}.partial-${process.pid}-${randomUUID()}`,
+    );
+    try {
+      await this.db.backup(temporaryPath);
+
+      const verifier = new Database(temporaryPath, { readonly: true, fileMustExist: true });
+      try {
+        const rows = verifier.prepare("PRAGMA quick_check").all() as Row[];
+        const valid =
+          rows.length > 0 &&
+          rows.every((row) =>
+            Object.values(row).every((value) => String(value).toLowerCase() === "ok"),
+          );
+        if (!valid) throw new Error("Backup failed SQLite quick_check");
+      } finally {
+        verifier.close();
+      }
+      for (const suffix of ["-wal", "-shm"]) {
+        const sidecar = `${temporaryPath}${suffix}`;
+        if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+      }
+
+      const file = fs.openSync(temporaryPath, "r+");
+      try {
+        fs.fsyncSync(file);
+      } finally {
+        fs.closeSync(file);
+      }
+
+      // A same-directory hard link publishes the complete backup atomically and
+      // fails rather than replacing a destination created by a concurrent process.
+      fs.linkSync(temporaryPath, destination);
+      fs.unlinkSync(temporaryPath);
+      if (process.platform !== "win32") {
+        const directory = fs.openSync(destinationDirectory, "r");
+        try {
+          fs.fsyncSync(directory);
+        } finally {
+          fs.closeSync(directory);
+        }
+      }
+    } catch (error) {
+      for (const candidate of [temporaryPath, `${temporaryPath}-wal`, `${temporaryPath}-shm`]) {
+        if (fs.existsSync(candidate)) fs.unlinkSync(candidate);
+      }
+      throw error;
+    }
   }
 
   private initDb(): void {
-    this.db.exec(`
+    this.db.transaction(() => {
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS auth_session (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         token TEXT NOT NULL,
@@ -360,61 +484,56 @@ export class TelemetryStore {
         PRIMARY KEY (device_sn, field_id, date_key, actor)
       );
     `);
-    this.ensureColumns("telemetry_snapshots", {
-      battery_soc: "REAL",
-      battery_status: "INTEGER",
-      battery_power: "REAL",
-      battery_voltage: "REAL",
-      mppt_battery_voltage: "REAL",
-      pv_power: "REAL",
-      load_current: "REAL",
-      load_power: "REAL",
-      grid_voltage: "REAL",
-      grid_power: "REAL",
-      working_state: "TEXT",
-      pv_to_load_kw: "REAL",
-      battery_to_load_kw: "REAL",
-      grid_to_load_kw: "REAL",
-      pv_to_battery_kw: "REAL",
-      grid_to_battery_kw: "REAL",
-      grid_to_battery_reported: "INTEGER",
-      grid_to_battery_unmetered: "INTEGER",
-      battery_flow_unmetered: "INTEGER",
-    });
-    this.ensureColumns("battery_voltage_readings", { sampled_at_raw: "TEXT" });
-    this.ensureColumns("automation_state", {
-      baseline_a7: "REAL",
-      override_a6: "REAL",
-      override_a7: "REAL",
-    });
-    this.flush();
+      this.ensureColumns("telemetry_snapshots", {
+        battery_soc: "REAL",
+        battery_status: "INTEGER",
+        battery_power: "REAL",
+        battery_voltage: "REAL",
+        mppt_battery_voltage: "REAL",
+        pv_power: "REAL",
+        load_current: "REAL",
+        load_power: "REAL",
+        grid_voltage: "REAL",
+        grid_power: "REAL",
+        working_state: "TEXT",
+        pv_to_load_kw: "REAL",
+        battery_to_load_kw: "REAL",
+        grid_to_load_kw: "REAL",
+        pv_to_battery_kw: "REAL",
+        grid_to_battery_kw: "REAL",
+        grid_to_battery_reported: "INTEGER",
+        grid_to_battery_unmetered: "INTEGER",
+        battery_flow_unmetered: "INTEGER",
+      });
+      this.ensureColumns("battery_voltage_readings", { sampled_at_raw: "TEXT" });
+      this.ensureColumns("automation_state", {
+        baseline_a7: "REAL",
+        override_a6: "REAL",
+        override_a7: "REAL",
+      });
+    })();
   }
 
   private ensureColumns(table: string, columns: Record<string, string>): void {
     const existing = new Set(this.queryAll(`PRAGMA table_info(${table})`).map((row) => String(row.name)));
     for (const [column, type] of Object.entries(columns)) {
-      if (!existing.has(column)) this.db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      if (!existing.has(column)) this.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
     }
   }
 
   private queryAll(sql: string, params: SqlValue[] = []): Row[] {
-    const stmt = this.db.prepare(sql);
-    try {
-      stmt.bind(params);
-      const rows: Row[] = [];
-      while (stmt.step()) rows.push(stmt.getAsObject() as Row);
-      return rows;
-    } finally {
-      stmt.free();
-    }
+    return this.db.prepare(sql).all(...params) as Row[];
   }
 
   private queryOne(sql: string, params: SqlValue[] = []): Row | null {
-    return this.queryAll(sql, params)[0] ?? null;
+    return (this.db.prepare(sql).get(...params) as Row | undefined) ?? null;
+  }
+
+  private run(sql: string, params: SqlValue[] = []): Database.RunResult {
+    return this.db.prepare(sql).run(...params);
   }
 
   loadSession(): AuthSession | null {
-    this.refresh();
     const row = this.queryOne("SELECT token, secret, expires_at FROM auth_session WHERE id = 1");
     return row
       ? { token: String(row.token), secret: String(row.secret), expires_at: Number(row.expires_at) }
@@ -422,7 +541,7 @@ export class TelemetryStore {
   }
 
   saveSession(token: string, secret: string, expiresAt: number): void {
-    this.db.run(
+    this.run(
       `
       INSERT INTO auth_session (id, token, secret, expires_at, updated_at)
       VALUES (1, ?, ?, ?, ?)
@@ -434,7 +553,6 @@ export class TelemetryStore {
       `,
       [token, secret, expiresAt, nowSeconds()],
     );
-    this.flush();
   }
 
   upsertControlValue(args: {
@@ -453,7 +571,7 @@ export class TelemetryStore {
       args.scale !== 1 && rawNumber != null && Number.isFinite(rawNumber)
         ? rawNumber * args.scale
         : null;
-    this.db.run(
+    this.run(
       `
       INSERT INTO control_values (
         device_sn, field_id, label, unit, scale, raw_value,
@@ -482,12 +600,10 @@ export class TelemetryStore {
         readAt,
       ],
     );
-    this.flush();
     return this.controlValue(args.deviceSn, args.fieldId) as ControlValueRecord;
   }
 
   controlValue(deviceSn: string, fieldId: string): ControlValueRecord | null {
-    this.refresh();
     const row = this.queryOne(
       `
       SELECT device_sn, field_id, label, unit, scale, raw_value,
@@ -501,7 +617,6 @@ export class TelemetryStore {
   }
 
   controlValues(deviceSn: string): ControlValueRecord[] {
-    this.refresh();
     return this.queryAll(
       `
       SELECT device_sn, field_id, label, unit, scale, raw_value,
@@ -516,7 +631,7 @@ export class TelemetryStore {
 
   addControlEvent(input: ControlEventInput): JsonRecord {
     const createdAt = nowSeconds();
-    this.db.run(
+    this.run(
       `
       INSERT INTO control_events (
         device_sn, field_id, action, actor, status, reason,
@@ -536,7 +651,6 @@ export class TelemetryStore {
         createdAt,
       ],
     );
-    this.flush();
     return this.queryOne(
       `
       SELECT id, device_sn, field_id, action, actor, status, reason,
@@ -548,7 +662,6 @@ export class TelemetryStore {
   }
 
   controlEvents(deviceSn: string, limit = 80): JsonRecord[] {
-    this.refresh();
     return this.queryAll(
       `
       SELECT id, device_sn, field_id, action, actor, status, reason,
@@ -568,7 +681,6 @@ export class TelemetryStore {
   }
 
   automationState(deviceSn: string): AutomationStateRecord | null {
-    this.refresh();
     const row = this.queryOne(
       `
       SELECT device_sn, enabled, target_practical_soc, target_time,
@@ -592,7 +704,7 @@ export class TelemetryStore {
     state: Omit<AutomationStateRecord, "device_sn" | "updated_at">,
   ): AutomationStateRecord {
     const updatedAt = nowSeconds();
-    this.db.run(
+    this.run(
       `
       INSERT INTO automation_state (
         device_sn, enabled, target_practical_soc, target_time,
@@ -631,12 +743,10 @@ export class TelemetryStore {
         updatedAt,
       ],
     );
-    this.flush();
     return this.automationState(deviceSn) as AutomationStateRecord;
   }
 
   writeBudget(deviceSn: string, fieldId: string, dateKey: string, actor: string): JsonRecord {
-    this.refresh();
     const row = this.queryOne(
       `
       SELECT device_sn, field_id, date_key, actor, count, last_write_at
@@ -650,7 +760,7 @@ export class TelemetryStore {
 
   incrementWriteBudget(deviceSn: string, fieldId: string, dateKey: string, actor: string): JsonRecord {
     const now = nowSeconds();
-    this.db.run(
+    this.run(
       `
       INSERT INTO automation_write_budget (device_sn, field_id, date_key, actor, count, last_write_at)
       VALUES (?, ?, ?, ?, 1, ?)
@@ -660,7 +770,6 @@ export class TelemetryStore {
       `,
       [deviceSn, fieldId, dateKey, actor, now],
     );
-    this.flush();
     return this.writeBudget(deviceSn, fieldId, dateKey, actor);
   }
 
@@ -690,17 +799,21 @@ export class TelemetryStore {
         }),
       )
       .digest("hex");
-    const row = this.queryOne("SELECT last_hash FROM device_state WHERE device_sn = ?", [deviceSn]);
+    const row = this.queryOne(
+      "SELECT last_hash, last_polled_at FROM device_state WHERE device_sn = ?",
+      [deviceSn],
+    );
     const now = nowSeconds();
 
     if (row && row.last_hash === dataHash) {
-      this.db.run("UPDATE device_state SET last_polled_at = ? WHERE device_sn = ?", [now, deviceSn]);
-      this.flush();
+      if (now - Number(row.last_polled_at) >= POLL_HEARTBEAT_SECONDS) {
+        this.run("UPDATE device_state SET last_polled_at = ? WHERE device_sn = ?", [now, deviceSn]);
+      }
       return false;
     }
 
     const columns = ["device_sn", "device_gts", "data_hash", "payload_json", "polled_at"];
-    const values: SqlValue[] = [deviceSn, deviceGts, dataHash, JSON.stringify(payload), now];
+    const values: SqlValue[] = [deviceSn, deviceGts, dataHash, compactPayloadJson(payload), now];
     for (const column of FLAT_COLUMNS) {
       columns.push(column);
       values.push((readings[column] as SqlValue) ?? null);
@@ -714,27 +827,27 @@ export class TelemetryStore {
       values.push(flows[column] ? 1 : 0);
     }
 
-    this.db.run(
-      `INSERT INTO telemetry_snapshots (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
-      values,
-    );
-    this.db.run(
-      `
-      INSERT INTO device_state (device_sn, last_hash, last_gts, last_polled_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(device_sn) DO UPDATE SET
-        last_hash = excluded.last_hash,
-        last_gts = excluded.last_gts,
-        last_polled_at = excluded.last_polled_at
-      `,
-      [deviceSn, dataHash, deviceGts, now],
-    );
-    this.flush();
+    this.db.transaction(() => {
+      this.run(
+        `INSERT INTO telemetry_snapshots (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+        values,
+      );
+      this.run(
+        `
+        INSERT INTO device_state (device_sn, last_hash, last_gts, last_polled_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(device_sn) DO UPDATE SET
+          last_hash = excluded.last_hash,
+          last_gts = excluded.last_gts,
+          last_polled_at = excluded.last_polled_at
+        `,
+        [deviceSn, dataHash, deviceGts, now],
+      );
+    })();
     return true;
   }
 
   snapshotCount(deviceSn: string): number {
-    this.refresh();
     return Number(
       this.queryOne("SELECT COUNT(*) AS count FROM telemetry_snapshots WHERE device_sn = ?", [deviceSn])
         ?.count ?? 0,
@@ -742,7 +855,6 @@ export class TelemetryStore {
   }
 
   latestReadingsRaw(deviceSn: string): JsonRecord {
-    this.refresh();
     const row = this.queryOne(
       "SELECT payload_json FROM telemetry_snapshots WHERE device_sn = ? ORDER BY polled_at DESC LIMIT 1",
       [deviceSn],
@@ -751,7 +863,6 @@ export class TelemetryStore {
   }
 
   latestVoltage(deviceSn: string): JsonRecord | null {
-    this.refresh();
     const row = this.queryOne(
       `
       SELECT sampled_at, sampled_at_raw, battery_voltage, mppt_battery_voltage, working_state, battery_soc
@@ -767,65 +878,70 @@ export class TelemetryStore {
 
   upsertVoltageSamples(deviceSn: string, samples: VoltageSample[]): number {
     let count = 0;
-    for (const sample of samples) {
-      if (sample.sampled_at_raw) {
-        this.db.run(
-          `
-          DELETE FROM battery_voltage_readings
-          WHERE device_sn = ? AND sampled_at_raw = ? AND sampled_at <> ?
-          `,
-          [deviceSn, sample.sampled_at_raw, sample.sampled_at],
-        );
+    this.db.transaction(() => {
+      for (const sample of samples) {
+        if (sample.sampled_at_raw) {
+          this.run(
+            `
+            DELETE FROM battery_voltage_readings
+            WHERE device_sn = ? AND sampled_at_raw = ? AND sampled_at <> ?
+            `,
+            [deviceSn, sample.sampled_at_raw, sample.sampled_at],
+          );
 
-        this.db.run(
+          this.run(
+            `
+            DELETE FROM battery_voltage_readings
+            WHERE device_sn = ? AND sampled_at_raw IS NULL
+              AND (
+                sampled_at BETWEEN ? AND ?
+                OR sampled_at BETWEEN ? AND ?
+              )
+            `,
+            [
+              deviceSn,
+              sample.sampled_at - 3602,
+              sample.sampled_at - 3598,
+              sample.sampled_at + 3598,
+              sample.sampled_at + 3602,
+            ],
+          );
+        }
+        this.run(
           `
-          DELETE FROM battery_voltage_readings
-          WHERE device_sn = ? AND sampled_at_raw IS NULL
-            AND (
-              sampled_at BETWEEN ? AND ?
-              OR sampled_at BETWEEN ? AND ?
-            )
+          INSERT INTO battery_voltage_readings (
+            device_sn, sampled_at, sampled_at_raw, battery_voltage,
+            mppt_battery_voltage, working_state, battery_soc
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(device_sn, sampled_at) DO UPDATE SET
+            sampled_at_raw = excluded.sampled_at_raw,
+            battery_voltage = excluded.battery_voltage,
+            mppt_battery_voltage = excluded.mppt_battery_voltage,
+            working_state = excluded.working_state,
+            battery_soc = excluded.battery_soc
           `,
           [
             deviceSn,
-            sample.sampled_at - 3602,
-            sample.sampled_at - 3598,
-            sample.sampled_at + 3598,
-            sample.sampled_at + 3602,
+            sample.sampled_at,
+            sample.sampled_at_raw,
+            sample.battery_voltage,
+            sample.mppt_battery_voltage,
+            sample.working_state,
+            sample.battery_soc,
           ],
         );
+        count += 1;
       }
-      this.db.run(
-        `
-        INSERT INTO battery_voltage_readings (
-          device_sn, sampled_at, sampled_at_raw, battery_voltage,
-          mppt_battery_voltage, working_state, battery_soc
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(device_sn, sampled_at) DO UPDATE SET
-          sampled_at_raw = excluded.sampled_at_raw,
-          battery_voltage = excluded.battery_voltage,
-          mppt_battery_voltage = excluded.mppt_battery_voltage,
-          working_state = excluded.working_state,
-          battery_soc = excluded.battery_soc
-        `,
-        [
-          deviceSn,
-          sample.sampled_at,
-          sample.sampled_at_raw,
-          sample.battery_voltage,
-          sample.mppt_battery_voltage,
-          sample.working_state,
-          sample.battery_soc,
-        ],
-      );
-      count += 1;
-    }
-    if (count) this.flush();
+    })();
     return count;
   }
 
   syncDetailsVoltage(deviceSn: string, detailsDat: JsonRecord): number {
-    return this.upsertVoltageSamples(deviceSn, parseDetailsDat(detailsDat));
+    return this.syncDetailsVoltagePages(deviceSn, [detailsDat]);
+  }
+
+  syncDetailsVoltagePages(deviceSn: string, detailsPages: JsonRecord[]): number {
+    return this.upsertVoltageSamples(deviceSn, detailsPages.flatMap((page) => parseDetailsDat(page)));
   }
 
   purgeFutureVoltageReadings(deviceSn: string, graceSeconds = 300): number {
@@ -833,17 +949,15 @@ export class TelemetryStore {
       "SELECT COUNT(*) AS count FROM battery_voltage_readings WHERE device_sn = ? AND sampled_at > ?",
       [deviceSn, nowSeconds() + graceSeconds],
     );
-    this.db.run("DELETE FROM battery_voltage_readings WHERE device_sn = ? AND sampled_at > ?", [
+    this.run("DELETE FROM battery_voltage_readings WHERE device_sn = ? AND sampled_at > ?", [
       deviceSn,
       nowSeconds() + graceSeconds,
     ]);
     const count = Number(before?.count ?? 0);
-    if (count) this.flush();
     return count;
   }
 
   voltageHistory(deviceSn: string, hours = 24): JsonRecord[] {
-    this.refresh();
     return this.queryAll(
       `
       SELECT sampled_at, sampled_at_raw, battery_voltage, mppt_battery_voltage, working_state, battery_soc
@@ -856,7 +970,6 @@ export class TelemetryStore {
   }
 
   latestReadings(deviceSn: string): JsonRecord | null {
-    this.refresh();
     const row = this.queryOne(
       `
       SELECT device_gts, battery_soc, battery_status, battery_power,
@@ -879,7 +992,6 @@ export class TelemetryStore {
   }
 
   history(deviceSn: string, hours = 24): JsonRecord[] {
-    this.refresh();
     const rows = this.queryAll(
       `
       SELECT id, polled_at, device_gts, battery_soc, battery_status,
@@ -900,7 +1012,6 @@ export class TelemetryStore {
   }
 
   recentSnapshots(deviceSn: string, limit = 30): JsonRecord[] {
-    this.refresh();
     const rows = this.queryAll(
       `
       SELECT id, polled_at, device_gts, battery_soc, battery_status,
@@ -930,7 +1041,6 @@ export class TelemetryStore {
   }
 
   dailyEnergy(deviceSn: string, date: string): JsonRecord {
-    this.refresh();
     // UTC+7 (Asia/Jakarta): midnight local = midnight UTC minus 7h
     const [y, m, d] = date.split("-").map(Number);
     const startUnix = Date.UTC(y, m - 1, d, 0, 0, 0) / 1000 - 7 * 3600;
@@ -993,17 +1103,20 @@ export class TelemetryStore {
   }
 
   summary(deviceSn: string): JsonRecord {
-    this.refresh();
     return rowToRecord(
       this.queryOne(
         `
         SELECT COUNT(*) AS snapshot_count, MIN(polled_at) AS first_polled_at,
-               MAX(polled_at) AS last_polled_at, MIN(battery_soc) AS soc_min,
+               COALESCE(
+                 (SELECT last_polled_at FROM device_state WHERE device_sn = ?),
+                 MAX(polled_at)
+               ) AS last_polled_at,
+               MIN(battery_soc) AS soc_min,
                MAX(battery_soc) AS soc_max
         FROM telemetry_snapshots
         WHERE device_sn = ?
         `,
-        [deviceSn],
+        [deviceSn, deviceSn],
       ) ?? {},
     );
   }
@@ -1051,6 +1164,26 @@ function payloadReadingsRaw(payloadJson: unknown): JsonRecord {
   } catch {
     return {};
   }
+}
+
+function compactPayloadJson(payload: JsonRecord): string {
+  const readingsRaw =
+    payload.readings_raw && typeof payload.readings_raw === "object" && !Array.isArray(payload.readings_raw)
+      ? (payload.readings_raw as JsonRecord)
+      : {};
+  return JSON.stringify({ readings_raw: readingsRaw });
+}
+
+function compactExistingPayloadJson(payloadJson: unknown): string | null {
+  const payload = parseJsonObject(payloadJson);
+  if (
+    !payload?.readings_raw ||
+    typeof payload.readings_raw !== "object" ||
+    Array.isArray(payload.readings_raw)
+  ) {
+    return null;
+  }
+  return JSON.stringify({ readings_raw: payload.readings_raw });
 }
 
 function parseJsonObject(payloadJson: unknown): JsonRecord | null {

@@ -1,30 +1,30 @@
-// Flat, solid colors only — no gradients anywhere in the product.
+// Match the semantic CSS tokens in tailwind.css. Surfaces are strictly neutral.
 export const C = {
-  bg: "#0c0e10",
-  panel: "#15181b",
-  panelHi: "#1b1f23",
-  line: "#23282d",
-  lineHi: "#323840",
-  text: "#dfe3e7",
-  textDim: "#8b929b",
-  textFaint: "#5c636c",
+  bg: "#080808",
+  panel: "#101010",
+  panelHi: "#181818",
+  line: "#292929",
+  lineHi: "#404040",
+  text: "#ededed",
+  textDim: "#a3a3a3",
+  textFaint: "#858585",
 
   solar: "#e6b422",
   charge: "#4eb45a",
   discharge: "#e8743b",
   grid: "#4a93c4",
-  load: "#c8ccd2",
+  load: "#12c8bd",
   battery: "#9c7bd4",
 
   ok: "#4eb45a",
   warn: "#e6b422",
-  bad: "#e0533d",
+  bad: "#e39189",
 } as const;
 
 // Literal font stacks for use in SVG attributes, where CSS var() does not resolve.
 export const FONT = {
-  mono: '"IBM Plex Mono", ui-monospace, monospace',
-  display: '"Inter", system-ui, sans-serif',
+  mono: '"Geist Mono", ui-monospace, monospace',
+  display: '"Geist", system-ui, sans-serif',
 } as const;
 
 export const STATUS = {

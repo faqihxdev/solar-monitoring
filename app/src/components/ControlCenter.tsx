@@ -8,12 +8,22 @@ import {
   Loader2,
   RefreshCw,
   Send,
-  SlidersHorizontal,
   Target,
   X,
 } from "lucide-react";
-import type { AutomationStatus, ControlEntry, ControlEvent, ThresholdEntry } from "../api";
-import { useAutomation, useControlLog, useControlMutations, useControls } from "../hooks";
+import { SectionHeading } from "./ui";
+import type {
+  AutomationStatus,
+  ControlEntry,
+  ControlEvent,
+  ThresholdEntry,
+} from "../api";
+import {
+  useAutomation,
+  useControlLog,
+  useControlMutations,
+  useControls,
+} from "../hooks";
 import { fullTime, num, relativeAge, watts } from "../format";
 
 type FeedbackTone = "ok" | "warn" | "bad";
@@ -53,7 +63,7 @@ function minutesFromTime(value: string): number | null {
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  return hours * 60 + minutes;
+  return hours > 23 || minutes > 59 ? null : hours * 60 + minutes;
 }
 
 function timeFromMinutes(totalMinutes: number): string {
@@ -67,11 +77,17 @@ function targetSchedule(targetSoc: string, targetTime: string): string {
   const soc = Number(targetSoc);
   const targetMinutes = minutesFromTime(targetTime);
   if (!Number.isFinite(soc) || targetMinutes == null) return "when enabled";
-  if (soc <= TARGET_BASE_SOC || targetMinutes <= OPERATION_START_MINUTES) return "Start now";
+  if (soc <= TARGET_BASE_SOC || targetMinutes <= OPERATION_START_MINUTES)
+    return "Start now";
   return `Start ${timeFromMinutes(OPERATION_START_MINUTES)}`;
 }
 
-function automationExplanation(status: AutomationStatus | undefined, draftEnabled: boolean, targetSoc: string, targetTime: string) {
+function automationExplanation(
+  status: AutomationStatus | undefined,
+  draftEnabled: boolean,
+  targetSoc: string,
+  targetTime: string,
+) {
   const savedEnabled = Boolean(status?.enabled);
   const targetLabel = `${targetSoc || "—"}% by ${targetTime || "—"}`;
   const activeOverride = Boolean(status?.state.active_override);
@@ -96,75 +112,68 @@ function automationExplanation(status: AutomationStatus | undefined, draftEnable
       if (restoreBlocked) {
         return {
           title: "Paused: fallback restore blocked",
-          body:
-            `Target chasing is off, but automation still owns a previous A6/A7 override and could not restore the fallback band. ${reason || "Check the action timeline for the blocked cleanup write."} ${draftFact}.`,
+          body: `Target chasing is off, but automation still owns a previous A6/A7 override and could not restore the fallback band. ${reason || "Check the action timeline for the blocked cleanup write."} ${draftFact}.`,
         };
       }
       return {
         title: "Paused: restoring fallback",
-        body:
-          `Target chasing is off. The backend may write A6/A7 only to clear the previous automation override and return to the fallback band. ${draftFact}.`,
+        body: `Target chasing is off. The backend may write A6/A7 only to clear the previous automation override and return to the fallback band. ${draftFact}.`,
       };
     }
     return {
       title: "Paused: no automatic writes",
-      body:
-        `Automation is not trying to reach a target and does not own an A6/A7 override. ${draftFact}.`,
+      body: `Automation is not trying to reach a target and does not own an A6/A7 override. ${draftFact}.`,
     };
   }
 
   if (decision.includes("before operation start")) {
     return {
       title: "Waiting for start time",
-      body:
-        "Automation is enabled, but it will not write A6/A7 before the morning start time. If it still owns yesterday's raised band, it restores the fallback band once.",
+      body: "Automation is enabled, but it will not write A6/A7 before the morning start time. If it still owns yesterday's raised band, it restores the fallback band once.",
     };
   }
 
   if (decision.includes("behind")) {
     return {
       title: "Preserving battery to catch up",
-      body:
-        "Practical SOC is behind the solar-weighted path. Automation keeps the load on PLN and holds the protection band so the battery does not drain further before the target time.",
+      body: "Practical SOC is behind the solar-weighted path. Automation keeps the load on PLN and holds the protection band so the battery does not drain further before the target time.",
     };
   }
 
-  if (decision.includes("holding override") || decision.includes("holding protection band")) {
+  if (
+    decision.includes("holding override") ||
+    decision.includes("holding protection band")
+  ) {
     return {
       title: "Target reached: holding until target time",
-      body:
-        "The target is currently satisfied. Automation keeps the protection band active until the target time so the inverter does not drain the battery early.",
+      body: "The target is currently satisfied. Automation keeps the protection band active until the target time so the inverter does not drain the battery early.",
     };
   }
 
   if (decision.includes("tracking")) {
     return {
       title: "Tracking: waiting before changing thresholds",
-      body:
-        "The target is enabled. The backend follows a solar-weighted path that expects most progress around midday, and only writes the A6/A7 band when practical SOC falls far enough behind or an active band needs holding.",
+      body: "The target is enabled. The backend follows a solar-weighted path that expects most progress around midday, and only writes the A6/A7 band when practical SOC falls far enough behind or an active band needs holding.",
     };
   }
 
   if (decision.includes("cooldown") || decision.includes("budget")) {
     return {
       title: "Write blocked by safety guardrails",
-      body:
-        `The controller wanted to act, but a 15-minute batch cooldown or validation rule prevented another write. ${status?.reason ?? "Waiting for the next safe opportunity."}`,
+      body: `The controller wanted to act, but a 15-minute batch cooldown or validation rule prevented another write. ${status?.reason ?? "Waiting for the next safe opportunity."}`,
     };
   }
 
   if (decision.includes("target reached") || decision.includes("baseline")) {
     return {
       title: "Baseline active",
-      body:
-        `Automation is not preserving extra battery right now for ${targetLabel}. If it previously raised A6/A7, it is restoring or has restored the fallback band.`,
+      body: `Automation is not preserving extra battery right now for ${targetLabel}. If it previously raised A6/A7, it is restoring or has restored the fallback band.`,
     };
   }
 
   return {
     title: "Waiting for enough signal",
-    body:
-      "The controller needs fresh telemetry and control values before it can decide whether to wait, preserve the A6/A7 band, or restore baseline.",
+    body: "The controller needs fresh telemetry and control values before it can decide whether to wait, preserve the A6/A7 band, or restore baseline.",
   };
 }
 
@@ -189,7 +198,9 @@ interface ControlCenterProps {
   voltageThresholds?: ThresholdEntry[];
 }
 
-export default function ControlCenter({ voltageThresholds = [] }: ControlCenterProps) {
+export default function ControlCenter({
+  voltageThresholds = [],
+}: ControlCenterProps) {
   const controls = useControls();
   const log = useControlLog();
   const automation = useAutomation();
@@ -255,7 +266,8 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
     setDrafts((prev) => ({ ...prev, [control.id]: value }));
     setDirtyDrafts((prev) => {
       const changed = value !== rawControlValue(control);
-      if (changed) return prev[control.id] ? prev : { ...prev, [control.id]: true };
+      if (changed)
+        return prev[control.id] ? prev : { ...prev, [control.id]: true };
       if (!prev[control.id]) return prev;
       const next = { ...prev };
       delete next[control.id];
@@ -300,13 +312,13 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
 
   const status = automation.data?.automation;
   const savedEnabled = Boolean(status?.enabled);
-  const cleanupPending = !savedEnabled && Boolean(status?.state.active_override);
+  const cleanupPending =
+    !savedEnabled && Boolean(status?.state.active_override);
   const explain = automationExplanation(status, enabled, targetSoc, targetTime);
   const scheduleLabel = targetSchedule(targetSoc, targetTime);
-  const nextEvaluation =
-    cleanupPending
-      ? "cleanup pending"
-      : !savedEnabled
+  const nextEvaluation = cleanupPending
+    ? "cleanup pending"
+    : !savedEnabled
       ? "paused"
       : status?.next_check_at == null
         ? "waiting"
@@ -317,23 +329,38 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
       : `A6 ${num(status.target_a6, 1)} / A7 ${num(status.target_a7, 1)}`;
   const targetSummary = `${scheduleLabel}, ${targetSoc || "—"}% by ${targetTime || "—"}`;
   const desiredSummary =
-    status?.desired_practical_soc_now == null ? "—" : `${Math.round(status.desired_practical_soc_now)}%`;
-  const practicalSummary = status?.practical_soc == null ? "—" : `${Math.round(status.practical_soc)}%`;
+    status?.desired_practical_soc_now == null
+      ? "—"
+      : `${Math.round(status.desired_practical_soc_now)}%`;
+  const practicalSummary =
+    status?.practical_soc == null
+      ? "—"
+      : `${Math.round(status.practical_soc)}%`;
   const socGap =
     status?.desired_practical_soc_now == null || status.practical_soc == null
       ? null
-      : Math.max(0, Math.round(status.desired_practical_soc_now - status.practical_soc));
+      : Math.max(
+          0,
+          Math.round(status.desired_practical_soc_now - status.practical_soc),
+        );
   const pv = watts(status?.latest?.pv_power);
-  const load = watts(status?.latest?.load_power == null ? null : status.latest.load_power * 1000);
+  const load = watts(
+    status?.latest?.load_power == null ? null : status.latest.load_power * 1000,
+  );
   const powerSummary = `PV ${pv.value}${pv.unit ? ` ${pv.unit}` : ""} / load ${load.value}${load.unit ? ` ${load.unit}` : ""}`;
   const busy =
     mutations.readAll.isPending ||
+    mutations.readOne.isPending ||
     mutations.write.isPending ||
     mutations.updateAutomation.isPending ||
     mutations.evaluateAutomation.isPending;
 
-  const writingId = mutations.write.isPending ? mutations.write.variables?.id ?? null : null;
-  const readingId = mutations.readOne.isPending ? mutations.readOne.variables ?? null : null;
+  const writingId = mutations.write.isPending
+    ? (mutations.write.variables?.id ?? null)
+    : null;
+  const readingId = mutations.readOne.isPending
+    ? (mutations.readOne.variables ?? null)
+    : null;
 
   function readControl(control: ControlEntry) {
     mutations.readOne.mutate(control.id, {
@@ -345,7 +372,10 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
         });
       },
       onError: (error) =>
-        setFeedback({ tone: "bad", text: `Read ${control.label} failed: ${errorText(error)}` }),
+        setFeedback({
+          tone: "bad",
+          text: `Read ${control.label} failed: ${errorText(error)}`,
+        }),
     });
   }
 
@@ -353,36 +383,58 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
     mutations.readAll.mutate(undefined, {
       onSuccess: (data) => {
         setReadDrafts(data.controls);
-        setFeedback({ tone: "ok", text: `Refreshed ${data.controls.length} controls from inverter.` });
+        setFeedback({
+          tone: "ok",
+          text: `Refreshed ${data.controls.length} controls from inverter.`,
+        });
       },
       onError: (error) =>
-        setFeedback({ tone: "bad", text: `Read all failed: ${errorText(error)}` }),
+        setFeedback({
+          tone: "bad",
+          text: `Read all failed: ${errorText(error)}`,
+        }),
     });
   }
 
   function sendControl(control: ControlEntry) {
     const value = draftValue(control, drafts);
     const reason = `Manual ${control.label} change from ${control.raw_value ?? "unknown"} to ${value}`;
-    if (!window.confirm(`${control.label}\n\nSend ${value || "(blank)"} to the inverter?`)) return;
+    if (
+      !window.confirm(
+        `${control.label}\n\nSend ${value || "(blank)"} to the inverter?`,
+      )
+    )
+      return;
     mutations.write.mutate(
       { id: control.id, value, reason },
       {
         onSuccess: (data) => {
           const result = data.result;
-          setWrittenDraft(control.id, result.verified ?? result.requested);
           if (result.status === "written") {
+            setWrittenDraft(control.id, result.verified ?? result.requested);
             setFeedback({
               tone: "ok",
               text: `${control.label} written: ${result.before ?? "—"} → ${result.verified ?? result.requested}.`,
             });
           } else if (result.status === "skipped") {
-            setFeedback({ tone: "warn", text: `${control.label} unchanged: ${result.reason}` });
+            if (result.verified === result.requested)
+              setWrittenDraft(control.id, result.verified);
+            setFeedback({
+              tone: "warn",
+              text: `${control.label} unchanged: ${result.reason}`,
+            });
           } else {
-            setFeedback({ tone: "bad", text: `${control.label} write failed: ${result.reason}` });
+            setFeedback({
+              tone: "bad",
+              text: `${control.label} write failed: ${result.reason}`,
+            });
           }
         },
         onError: (error) =>
-          setFeedback({ tone: "bad", text: `${control.label} write failed: ${errorText(error)}` }),
+          setFeedback({
+            tone: "bad",
+            text: `${control.label} write failed: ${errorText(error)}`,
+          }),
       },
     );
   }
@@ -392,23 +444,38 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
     const baselineA6Value = Number(baselineA6);
     const baselineA7Value = Number(baselineA7);
     if (!Number.isFinite(socValue) || socValue < 0 || socValue > 100) {
-      setFeedback({ tone: "bad", text: "Target practical SOC must be between 0 and 100." });
+      setFeedback({
+        tone: "bad",
+        text: "Target practical SOC must be between 0 and 100.",
+      });
       return;
     }
-    if (!minutesFromTime(targetTime)) {
-      setFeedback({ tone: "bad", text: "Target time must be a valid HH:MM value." });
+    if (minutesFromTime(targetTime) == null) {
+      setFeedback({
+        tone: "bad",
+        text: "Target time must be a valid HH:MM value.",
+      });
       return;
     }
     if (!Number.isFinite(baselineA6Value)) {
-      setFeedback({ tone: "bad", text: "Disabled fallback A6 must be a number." });
+      setFeedback({
+        tone: "bad",
+        text: "Disabled fallback A6 must be a number.",
+      });
       return;
     }
     if (!Number.isFinite(baselineA7Value)) {
-      setFeedback({ tone: "bad", text: "Disabled fallback A7 must be a number." });
+      setFeedback({
+        tone: "bad",
+        text: "Disabled fallback A7 must be a number.",
+      });
       return;
     }
     if (baselineA6Value <= baselineA7Value) {
-      setFeedback({ tone: "bad", text: "Disabled fallback band must satisfy A6 > A7." });
+      setFeedback({
+        tone: "bad",
+        text: "Disabled fallback band must satisfy A6 > A7.",
+      });
       return;
     }
     mutations.updateAutomation.mutate(
@@ -422,10 +489,16 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
       {
         onSuccess: () => {
           setFormDirty(false);
-          setFeedback({ tone: "ok", text: `Target saved: ${socValue}% by ${targetTime} (${enabled ? "ON" : "OFF"}).` });
+          setFeedback({
+            tone: "ok",
+            text: `Target saved: ${socValue}% by ${targetTime} (${enabled ? "ON" : "OFF"}).`,
+          });
         },
         onError: (error) =>
-          setFeedback({ tone: "bad", text: `Save target failed: ${errorText(error)}` }),
+          setFeedback({
+            tone: "bad",
+            text: `Save target failed: ${errorText(error)}`,
+          }),
       },
     );
   }
@@ -433,20 +506,21 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
   function evaluateNow() {
     mutations.evaluateAutomation.mutate(undefined, {
       onSuccess: (data) =>
-        setFeedback({ tone: "ok", text: `Evaluated: ${data.automation.decision}.` }),
+        setFeedback({
+          tone: "ok",
+          text: `Evaluated: ${data.automation.decision}.`,
+        }),
       onError: (error) =>
-        setFeedback({ tone: "bad", text: `Evaluate failed: ${errorText(error)}` }),
+        setFeedback({
+          tone: "bad",
+          text: `Evaluate failed: ${errorText(error)}`,
+        }),
     });
   }
 
-
   return (
-    <section className="mt-8 animate-[fadein_0.5s_ease_both] sm:mt-10">
-      <div className="mb-3 flex items-baseline justify-between gap-4">
-        <h2 className="m-0 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-dim">
-          <SlidersHorizontal size={14} strokeWidth={1.8} /> Control Center
-        </h2>
-      </div>
+    <section className="controls-section" aria-label="System control center">
+      <SectionHeading title="Automation & device settings" />
 
       {feedback && (
         <div
@@ -454,7 +528,9 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
           role="status"
           aria-live="polite"
         >
-          <span className={`mt-px inline-flex shrink-0 ${feedbackIconToneClass[feedback.tone]}`}>
+          <span
+            className={`mt-px inline-flex shrink-0 ${feedbackIconToneClass[feedback.tone]}`}
+          >
             {feedback.tone === "ok" ? (
               <CheckCircle2 size={15} strokeWidth={1.9} />
             ) : feedback.tone === "warn" ? (
@@ -463,7 +539,9 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               <AlertTriangle size={15} strokeWidth={1.9} />
             )}
           </span>
-          <span className="min-w-0 flex-1 wrap-break-word text-text">{feedback.text}</span>
+          <span className="min-w-0 flex-1 wrap-break-word text-text">
+            {feedback.text}
+          </span>
           <button
             type="button"
             className="-mr-1 -mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-card p-0 text-faint transition-colors hover:bg-panel hover:text-text"
@@ -475,25 +553,35 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
         </div>
       )}
 
+      {automation.isError && (
+        <div className="notice" role="status">
+          <AlertTriangle size={16} />
+          <span>
+            Automation settings could not be loaded. Saving is unavailable until
+            the connection returns.
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3">
         <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
             <div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
-                <Target size={14} strokeWidth={1.8} /> Practical SOC target
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-dim">
+                <Target size={14} strokeWidth={1.8} /> Battery charge target
               </div>
               <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
-                Uses practical SOC mapped to pack voltage. Disabled mode restores the baseline A6/A7 band once only
-                when automation owns an override.
+                Uses practical SOC mapped to pack voltage. Disabled mode
+                restores the baseline A6/A7 band once only when automation owns
+                an override.
               </p>
             </div>
             <div
-              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 font-mono text-xs tracking-wide ${
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 font-mono text-xs ${
                 savedEnabled
                   ? "bg-charge/10 text-charge"
                   : cleanupPending
                     ? "bg-solar/10 text-solar"
-                  : "bg-panel-hi text-faint"
+                    : "bg-panel-hi text-faint"
               }`}
             >
               {savedEnabled ? "Active" : cleanupPending ? "Cleanup" : "Paused"}
@@ -517,14 +605,18 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
                 <span className="control-switch-thumb" />
               </span>
               <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm font-medium text-text">Enable automatic A6/A7 band changes</span>
+                <span className="text-sm font-medium text-text">
+                  Enable automatic A6/A7 band changes
+                </span>
               </span>
             </label>
             <div className="w-full text-left sm:w-auto sm:shrink-0 sm:text-right">
               {formDirty ? (
-                <span className="font-mono text-xs tracking-wide text-solar">Unsaved · press Save target</span>
+                <span className="font-mono text-xs text-solar">
+                  Unsaved changes
+                </span>
               ) : (
-                <span className="font-mono text-xs tracking-wide text-faint">
+                <span className="font-mono text-xs text-faint">
                   Saved: {savedEnabled ? "ON" : "OFF"}
                 </span>
               )}
@@ -533,7 +625,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
 
           <div className="mt-3 grid grid-cols-1 gap-2.5 sm:mt-3.5 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-faint">Target SOC</span>
+              <span className="text-[10px] text-faint">Target SOC</span>
               <input
                 className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
                 type="number"
@@ -548,7 +640,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-faint">Target time</span>
+              <span className="text-[10px] text-faint">Target time</span>
               <input
                 className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
                 type="time"
@@ -560,7 +652,9 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-faint">Fallback A6 voltage</span>
+              <span className="text-[10px] text-faint">
+                Fallback A6 voltage
+              </span>
               <input
                 className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
                 type="number"
@@ -575,7 +669,9 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               />
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-faint">Fallback A7 voltage</span>
+              <span className="text-[10px] text-faint">
+                Fallback A7 voltage
+              </span>
               <input
                 className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
                 type="number"
@@ -593,24 +689,32 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
 
           <div className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-5">
             <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] uppercase tracking-wider text-faint">Target</span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{targetSummary}</span>
+              <span className="block text-[10px] text-faint">Target</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                {targetSummary}
+              </span>
             </div>
             <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] uppercase tracking-wider text-faint">Practical / expected</span>
+              <span className="block text-[10px] text-faint">
+                Practical / expected
+              </span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">
                 {practicalSummary} / {desiredSummary}
                 {socGap != null && socGap > 0 && (
-                  <span className="ml-1 text-[10px] font-normal text-faint">(-{socGap})</span>
+                  <span className="ml-1 text-[10px] font-normal text-faint">
+                    (-{socGap})
+                  </span>
                 )}
               </span>
             </div>
             <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] uppercase tracking-wider text-faint">Power now</span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{powerSummary}</span>
+              <span className="block text-[10px] text-faint">Power now</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                {powerSummary}
+              </span>
             </div>
             <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-faint">
+              <span className="flex items-center gap-1 text-[10px] text-faint">
                 Protection band
                 <span className="group relative inline-flex">
                   <button
@@ -621,7 +725,9 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
                     <Info size={9} strokeWidth={2} />
                   </button>
                   <span className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1.5 w-44 -translate-x-1/2 rounded-card border border-line bg-panel px-2 py-1.5 text-[10px] normal-case tracking-normal text-faint opacity-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)] transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                    {status?.target_band_capped ? "Capped by inverter limits" : "Within inverter limits"}
+                    {status?.target_band_capped
+                      ? "Capped by inverter limits"
+                      : "Within inverter limits"}
                   </span>
                 </span>
               </span>
@@ -630,33 +736,45 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               </span>
             </div>
             <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] uppercase tracking-wider text-faint">Next check</span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">{nextEvaluation}</span>
+              <span className="block text-[10px] text-faint">Next check</span>
+              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                {nextEvaluation}
+              </span>
             </div>
           </div>
 
           <div className="mt-2.5 rounded-card border border-line border-l-2 border-l-battery bg-panel-hi px-3 py-2.5">
-            <span className="text-xs font-semibold text-text">Now: {explain.title}</span>
-            <p className="mt-1.5 text-xs leading-relaxed text-dim">{explain.body}</p>
+            <span className="text-xs font-semibold text-text">
+              Now: {explain.title}
+            </span>
+            <p className="mt-1.5 text-xs leading-relaxed text-dim">
+              {explain.body}
+            </p>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={saveAutomation}
-              disabled={busy}
+              disabled={
+                busy || automation.isLoading || automation.isError || !formDirty
+              }
               className={`inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45 ${
                 formDirty ? "border-charge bg-charge/15 text-text" : ""
               }`}
             >
-              {mutations.updateAutomation.isPending && <Loader2 size={13} className="animate-spin" />}
+              {mutations.updateAutomation.isPending && (
+                <Loader2 size={13} className="animate-spin" />
+              )}
               Save target
             </button>
             <button
               onClick={evaluateNow}
-              disabled={busy}
+              disabled={busy || automation.isLoading || automation.isError}
               className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
             >
-              {mutations.evaluateAutomation.isPending && <Loader2 size={13} className="animate-spin" />}
+              {mutations.evaluateAutomation.isPending && (
+                <Loader2 size={13} className="animate-spin" />
+              )}
               Evaluate now
             </button>
           </div>
@@ -665,11 +783,12 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
         <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
             <div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-dim">
                 <RefreshCw size={14} strokeWidth={1.8} /> Device controls
               </div>
               <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
-                Values show read freshness. Writes are read-before-write and verified after send.
+                Values show read freshness. Writes are read-before-write and
+                verified after send.
               </p>
             </div>
             <button
@@ -677,7 +796,9 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
               onClick={readAll}
               disabled={busy}
             >
-              {mutations.readAll.isPending && <Loader2 size={13} className="animate-spin" />}
+              {mutations.readAll.isPending && (
+                <Loader2 size={13} className="animate-spin" />
+              )}
               {mutations.readAll.isPending ? "Reading…" : "Read all"}
             </button>
           </div>
@@ -693,7 +814,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
           ) : (
             <>
               <ControlGroup
-                title="Battery setting"
+                title="Battery settings"
                 controls={grouped.battery}
                 drafts={drafts}
                 setDraft={setDraft}
@@ -705,7 +826,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
                 controlLabelColors={controlLabelColors}
               />
               <ControlGroup
-                title="Other setting"
+                title="Inverter settings"
                 controls={grouped.other}
                 drafts={drafts}
                 setDraft={setDraft}
@@ -723,7 +844,7 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
         <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
             <div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-dim">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-dim">
                 <ListChecks size={14} strokeWidth={1.8} /> Action timeline
               </div>
               <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
@@ -745,7 +866,9 @@ export default function ControlCenter({ voltageThresholds = [] }: ControlCenterP
                 No control events yet.
               </div>
             ) : (
-              (log.data?.events ?? []).map((event) => <EventRow key={event.id} event={event} />)
+              (log.data?.events ?? []).map((event) => (
+                <EventRow key={event.id} event={event} />
+              ))
             )}
           </div>
         </div>
@@ -781,7 +904,7 @@ function ControlGroup({
 }: ControlGroupProps) {
   return (
     <div className="mt-3.5">
-      <div className="mb-2 text-xs uppercase tracking-wider text-dim">{title}</div>
+      <div className="mb-2 text-xs text-dim">{title}</div>
       {controls.length === 0 ? (
         <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
           No controls in this group.
@@ -794,8 +917,13 @@ function ControlGroup({
             const isWriting = writingId === control.id;
             const isReading = readingId === control.id;
             const labelColor = controlLabelColors.get(control.id);
-            const enumValues = new Set((control.options ?? []).map((option) => option.value));
-            const unknownEnumValue = control.type === "enum" && value && !enumValues.has(value) ? value : null;
+            const enumValues = new Set(
+              (control.options ?? []).map((option) => option.value),
+            );
+            const unknownEnumValue =
+              control.type === "enum" && value && !enumValues.has(value)
+                ? value
+                : null;
             return (
               <div
                 className="grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-card border border-line bg-panel-hi px-2.5 py-2 sm:px-3 lg:grid-cols-12"
@@ -810,7 +938,9 @@ function ControlGroup({
                       {control.label}
                     </span>
                     {!control.writable && (
-                      <span className="shrink-0 text-xs font-medium leading-snug text-faint">read-only</span>
+                      <span className="shrink-0 text-xs font-medium leading-snug text-faint">
+                        read-only
+                      </span>
                     )}
                     {control.hint && (
                       <span className="group relative inline-flex shrink-0">
@@ -828,7 +958,10 @@ function ControlGroup({
                     )}
                   </div>
                 </div>
-                <div className="min-w-0 font-mono text-[10px] text-faint lg:col-span-3" title={control.id}>
+                <div
+                  className="min-w-0 font-mono text-[10px] text-faint lg:col-span-3"
+                  title={control.id}
+                >
                   <span className="block truncate">{control.id}</span>
                 </div>
                 <div className="inline-flex items-center gap-1 text-[10px] text-faint lg:col-span-1 lg:justify-self-end lg:pr-1">
@@ -847,12 +980,16 @@ function ControlGroup({
                           }}
                           aria-label={`${control.label} value`}
                           value={value}
-                          onChange={(event) => setDraft(control, event.target.value)}
+                          onChange={(event) =>
+                            setDraft(control, event.target.value)
+                          }
                           disabled={!control.writable}
                         >
                           <option value="">Select…</option>
                           {unknownEnumValue && (
-                            <option value={unknownEnumValue}>{unknownEnumValue} - current device value</option>
+                            <option value={unknownEnumValue}>
+                              {unknownEnumValue} - current device value
+                            </option>
                           )}
                           {control.options.map((option) => (
                             <option value={option.value} key={option.value}>
@@ -870,7 +1007,9 @@ function ControlGroup({
                             max={control.max}
                             step={control.step}
                             value={value}
-                            onChange={(event) => setDraft(control, event.target.value)}
+                            onChange={(event) =>
+                              setDraft(control, event.target.value)
+                            }
                             disabled={!control.writable}
                           />
                           {control.unit && (
@@ -890,7 +1029,9 @@ function ControlGroup({
                     disabled={busy}
                     aria-label={`Read ${control.label} from inverter`}
                   >
-                    {isReading && <Loader2 size={11} className="animate-spin" />}
+                    {isReading && (
+                      <Loader2 size={11} className="animate-spin" />
+                    )}
                     Read
                   </button>
                   <button
@@ -906,7 +1047,12 @@ function ControlGroup({
                     }
                     aria-label={`Send ${control.label} to inverter`}
                   >
-                    {isWriting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />} Send
+                    {isWriting ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Send size={11} />
+                    )}{" "}
+                    Send
                   </button>
                 </div>
               </div>
@@ -923,17 +1069,23 @@ function EventRow({ event }: { event: ControlEvent }) {
     <div
       className={`grid grid-cols-1 gap-2.5 rounded-card border border-line border-l-2 bg-panel-hi px-2.5 py-2.5 sm:px-3 md:grid-cols-5 md:gap-3 ${eventToneClass[event.status] ?? "border-l-line"}`}
     >
-      <div className="font-mono text-xs tabular-nums text-faint md:col-span-1">{eventTime(event)}</div>
+      <div className="font-mono text-xs tabular-nums text-faint md:col-span-1">
+        {eventTime(event)}
+      </div>
       <div className="min-w-0 md:col-span-4">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs uppercase tracking-widest text-text">{event.action}</span>
-          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">{event.actor}</span>
+          <span className="text-xs text-text">{event.action}</span>
+          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">
+            {event.actor}
+          </span>
           {event.field_id && (
             <span className="rounded-full border border-line px-2 py-0.5 font-mono text-xs text-faint">
               {event.field_id}
             </span>
           )}
-          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">{event.status}</span>
+          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">
+            {event.status}
+          </span>
         </div>
         <p className="mt-2 text-xs leading-snug text-dim">{event.reason}</p>
         {(event.value_before != null || event.value_after != null) && (

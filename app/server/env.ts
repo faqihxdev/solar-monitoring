@@ -35,7 +35,3 @@ export const config = {
   controlDbPath: path.resolve(projectRoot, process.env.DESS_CONTROL_DB_PATH ?? "data/solar-control.db"),
   apiPort: envPort("DESS_DASHBOARD_PORT", 43871),
 };
-
-export function sqlJsWasmPath(file: string): string {
-  return fileURLToPath(new URL(`../node_modules/sql.js/dist/${file}`, import.meta.url));
-}

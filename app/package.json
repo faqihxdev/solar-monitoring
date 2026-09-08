@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "tsx server/dev.ts",
@@ -13,34 +13,36 @@
     "dev:api": "tsx watch server/index.ts",
     "api": "tsx server/index.ts",
     "poller": "tsx server/poller.ts",
+    "backup": "tsx server/backup.ts",
     "debug:dess": "tsx server/debug-dess.ts",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "test": "tsx --test \"server/*.test.ts\"",
+    "preview": "vite preview",
+    "test:ui": "playwright test",
+    "test:frontend": "tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
+    "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.15.0",
-    "sql.js": "^1.14.1"
+    "three": "^0.185.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@types/sql.js": "^1.4.11",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.3.0",
     "tsx": "^4.21.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
