@@ -1,0 +1,21 @@
+name: Rust backend
+on:
+  push:
+    paths: ['app/backend/**', '.github/workflows/rust-backend.yml']
+  pull_request:
+    paths: ['app/backend/**', '.github/workflows/rust-backend.yml']
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --release --locked

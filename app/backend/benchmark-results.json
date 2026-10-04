@@ -1,0 +1,41 @@
+{
+  "fixture": {
+    "telemetry_points": 20000,
+    "voltage_samples": 5000,
+    "days": 7,
+    "iterations": 5
+  },
+  "generated_at": "2026-09-30T14:57:14.797Z",
+  "platform": "win32",
+  "node": "v24.15.0",
+  "results": {
+    "history": {
+      "typescript_median_ms": 231.36879999999996,
+      "rust_median_ms": 33.9013,
+      "speedup": 6.824776630984652,
+      "typescript_p95_ms": 237.11760000000004,
+      "rust_p95_ms": 36.1664
+    },
+    "history_200": {
+      "typescript_median_ms": 205.80989999999974,
+      "rust_median_ms": 6.8369,
+      "speedup": 30.102809752958173,
+      "typescript_p95_ms": 228.3782000000001,
+      "rust_p95_ms": 7.0951
+    },
+    "daily_7": {
+      "typescript_median_ms": 16.17320000000018,
+      "rust_median_ms": 9.8086,
+      "speedup": 1.6488795546765267,
+      "typescript_p95_ms": 17.741799999999785,
+      "rust_p95_ms": 10.1431
+    },
+    "readiness_100": {
+      "typescript_median_ms": 191.48059999999987,
+      "rust_median_ms": 0.3742,
+      "speedup": 511.70657402458545,
+      "typescript_p95_ms": 192.16930000000002,
+      "rust_p95_ms": 0.37770000000000004
+    }
+  }
+}

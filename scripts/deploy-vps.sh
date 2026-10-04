@@ -298,6 +298,23 @@ nginx -t
 timeout 8 curl -kfsS --connect-timeout 3 --max-time 8 -o /dev/null --resolve 'kebun.utf.sh:443:127.0.0.1' 'https://kebun.utf.sh/'" >/dev/null
 }
 
+check_rust_runtime() {
+  local runtime_commands path
+  runtime_commands="$(capture_remote "systemctl show solar-api.service solar-poller.service -p ExecStart --value")"
+  if [[ "$runtime_commands" != *'/opt/solar-system/releases/rust-'*'/bin/solar-backend'* ]]; then
+    return
+  fi
+  log "Production uses a versioned Rust backend"
+  if [[ "$RESTART_MODE" == "none" ]]; then
+    return
+  fi
+  for path in "${CHANGED_PATHS[@]}"; do
+    if [[ "$path" == app/backend/* ]]; then
+      die "Rust backend changes require the versioned release workflow in app/backend/README.md. This script builds only the frontend. Use --ui-only for an explicitly frontend-only deployment."
+    fi
+  done
+}
+
 capture_protected_state() {
   capture_remote "set -eu
 systemctl show nginx.service kebun.service -p Id -p ActiveState -p SubState -p MainPID -p NRestarts -p ExecMainStartTimestampMonotonic --no-pager
@@ -425,6 +442,7 @@ if [[ "${#CHANGED_PATHS[@]}" -gt 0 ]]; then
 fi
 
 preflight_shared_host
+check_rust_runtime
 
 PROTECTED_STATE_BASELINE="$(capture_protected_state)"
 trap verify_protected_state_on_exit EXIT
@@ -437,6 +455,7 @@ run rsync -az \
   --chown 'solar:solar' \
   --chmod 'Du=rwx,Dgo=rx,Fu=rw,Fgo=r' \
   --exclude 'node_modules' \
+  --exclude 'target' \
   --exclude 'dist' \
   --exclude 'test-results' \
   --exclude 'playwright-report' \

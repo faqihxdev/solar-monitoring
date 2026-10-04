@@ -1,0 +1,76 @@
+{
+  "battery_voltage": [
+    {
+      "id": "a3_float_charge",
+      "value": 27.4,
+      "label": "Float charge [A3]",
+      "hint": "A3 bat_single_battery_float_charge_setting (x2 = 24 V pack) - float/maintenance charge target",
+      "color": "#5f8fd6",
+      "field_id": "bat_single_battery_float_charge_setting",
+      "scale": 2,
+      "from_device": false
+    },
+    {
+      "id": "a6_return_pln",
+      "value": 27,
+      "label": "Return to inverter [A6]",
+      "hint": "A6 bat_power_supply_value (x2 = 24 V pack) - leave mains bypass when pack >= this",
+      "color": "#6b9e3e",
+      "field_id": "bat_power_supply_value",
+      "scale": 2,
+      "from_device": false
+    },
+    {
+      "id": "a5_low_recovery",
+      "value": 26,
+      "label": "Low battery recovery [A5]",
+      "hint": "A5 bat_low_voltage_recovery_value (x2 = 24 V pack) - recover output after low-voltage protection",
+      "color": "#458f6f",
+      "field_id": "bat_low_voltage_recovery_value",
+      "scale": 2,
+      "from_device": false
+    },
+    {
+      "id": "a7_switch_pln",
+      "value": 25.2,
+      "label": "Switch to grid [A7]",
+      "hint": "A7 bat_mains_power_supply_value (x2 = 24 V pack) - mains bypass when pack <= this",
+      "color": "#b85c2a",
+      "field_id": "bat_mains_power_supply_value",
+      "scale": 2,
+      "from_device": false
+    },
+    {
+      "id": "a4_low_protection",
+      "value": 23.4,
+      "label": "Low voltage protection [A4]",
+      "hint": "A4 bat_low_voltage_protection_value (x2 = 24 V pack) - inverter output cutoff floor",
+      "color": "#b14a4a",
+      "field_id": "bat_low_voltage_protection_value",
+      "scale": 2,
+      "from_device": false
+    }
+  ],
+  "battery_soc": [
+    {
+      "id": "soc_resume_inverter",
+      "value": 25,
+      "label": "Resume inverter",
+      "hint": "lithium_battery_conthigh - battery/inverter resumes when SOC >= this",
+      "color": "#6b9e3e",
+      "field_id": "lithium_battery_conthigh",
+      "scale": 1,
+      "from_device": false
+    },
+    {
+      "id": "soc_to_mains",
+      "value": 15,
+      "label": "Switch to grid",
+      "hint": "lithium_battery_contlow - switch to mains when SOC <= this",
+      "color": "#b85c2a",
+      "field_id": "lithium_battery_contlow",
+      "scale": 1,
+      "from_device": false
+    }
+  ]
+}

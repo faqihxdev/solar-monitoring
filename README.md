@@ -18,15 +18,19 @@ The screenshot uses synthetic telemetry. The deployed instance is private.
 ## Backend
 
 - Signed DESSMonitor requests, session handling, and a separate background poller.
-- SQLite storage through `better-sqlite3`, with WAL transactions, validated backups, and graceful shutdown.
+- SQLite storage through `rusqlite`, with WAL transactions, validated backups, and graceful shutdown.
 - A readiness endpoint that checks database access and telemetry age.
 
 ## Tech stack
 
 - React 18, Vite 6, Tailwind CSS 4, Three.js, Recharts, and TanStack Query
-- TypeScript across frontend and server runtime
-- SQLite through `better-sqlite3`
-- Node.js backend + poller services
+- TypeScript frontend and Vite tooling
+- Rust backend and poller with Axum, Tokio, and `rusqlite`
+- SQLite with WAL transactions and full synchronous writes
+
+The Rust backend in [`app/backend`](app/backend/README.md) runs in production
+as of September 30, 2026. It preserves the API and SQLite schema. The TypeScript
+backend remains available for local development, compatibility tests, and rollback.
 
 ## Local setup
 

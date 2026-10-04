@@ -18,6 +18,14 @@ Solar deployment.
 
 ## Safe deployment
 
+Production uses the Rust API, poller, and backup runtime as of September 30,
+2026. The service overrides select a versioned binary while preserving the
+existing service identities, configuration, databases, and Nginx proxy.
+Follow [the Rust release and rollback workflow](../app/backend/README.md#production-releases-and-rollback)
+for backend replacement. The standard script below builds only the frontend;
+it refuses changed Rust backend files when a service restart is requested.
+The TypeScript commands remain available for development and rollback.
+
 `scripts/deploy-vps.sh` refuses any SSH alias, project path, public URL, Host
 header, or Nginx path outside the exact Solar production boundary. It also:
 
