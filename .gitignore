@@ -40,6 +40,9 @@ playwright-report/
 .cache/
 *.tsbuildinfo
 
+# Rust build artifacts
+target/
+
 *.log
 npm-debug.log*
 pnpm-debug.log*
