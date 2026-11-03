@@ -106,6 +106,8 @@ export function useHistory(hours: number) {
   return useQuery({
     queryKey: ["history", hours],
     queryFn: () => api.history(hours),
+    // Keep the previous range on screen while a new range loads.
+    placeholderData: keepPreviousData,
     refetchInterval: TREND_REFETCH_MS,
   });
 }
@@ -114,6 +116,7 @@ export function useVoltage(hours: number) {
   return useQuery({
     queryKey: ["voltage", hours],
     queryFn: () => api.voltage(hours),
+    placeholderData: keepPreviousData,
     refetchInterval: TREND_REFETCH_MS,
   });
 }

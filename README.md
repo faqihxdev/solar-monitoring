@@ -25,10 +25,6 @@ The Rust backend in [`app/backend`](app/backend/README.md) has run in production
 | Guarded inverter writes | Each write checks catalog limits, reads the current value, skips no-op changes, sends the new value, reads it back and records every step in an audit log. The dashboard asks for confirmation, and canceling sends nothing. |
 | Battery automation | A check every 5 minutes adjusts the A6/A7 battery and grid switching band to reach a target charge by a set time. Daily write budgets and cooldowns limit it, and disabling it restores the fallback band. |
 | Practical charge | A 24 V voltage curve applied to the 15-minute average pack voltage, shown beside the inverter's reported charge. |
-| Explicit estimates | Missing battery and grid power is inferred from the energy balance only when the readings support it. Estimates show `≈`, known minimums show `≥` and anything else stays unmetered. Estimates exclude conversion losses. |
-| Installation view | A Three.js model or a flat SVG view, with callouts anchored to each device and moving pulses that show flow direction. The scene renders on change, caps animation at 30 fps and stops while hidden. A device picker replaces it when WebGL is unavailable. |
-| Operations | `/api/ready` checks database access and telemetry age. Shutdown drains background work before closing SQLite. A systemd timer writes validated daily backups and keeps 14. Deploy scripts refuse Nginx sites and services outside Solar. |
-| Verification | Rust tests compare 9,600 energy cases and 24 automation scenarios with the TypeScript implementation and read a legacy database. Browser tests check that the dashboard loads cleanly and that a canceled write sends nothing. |
 
 ## Run locally
 

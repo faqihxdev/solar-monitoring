@@ -830,10 +830,18 @@ p {
   font-weight: 500;
   letter-spacing: -0.4px;
 }
+/* The description sits beside the title so its presence never changes the
+   heading's height. */
+.section-heading > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
 .section-heading p {
-  margin: 3px 0 0;
+  margin: 0;
   font-size: 12px;
   color: var(--color-faint);
+  white-space: nowrap;
 }
 .segmented .date-label {
   min-width: 56px;
@@ -976,13 +984,58 @@ p {
 .daily-summary .empty-state {
   padding: 25px 0;
 }
-.daily-skeleton,
 .page-loading {
   display: grid;
   place-items: center;
   min-height: 300px;
   color: var(--color-dim);
   grid-column: 1 / -1;
+}
+/* Skeletons match the loaded content's size so nothing below them moves. */
+.skeleton {
+  background: #1c1c1c;
+  border-radius: var(--radius-card);
+  animation: skel-pulse 1.6s ease-in-out infinite;
+}
+.daily-skeleton {
+  grid-column: 1 / -1;
+  min-height: 313px;
+  border-radius: 0;
+}
+.chart-skeleton {
+  height: 304px;
+  border-radius: 14px;
+}
+.chart-skeleton-wide {
+  grid-column: 1 / -1;
+  height: 348px;
+}
+.control-skeleton {
+  height: 55px;
+}
+.event-skeleton {
+  height: 59px;
+}
+/* Control results float above the page instead of pushing it down. */
+.feedback-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 40;
+  width: min(420px, calc(100vw - 32px));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+@media (max-width: 640px) {
+  .feedback-toast {
+    right: 16px;
+    bottom: 16px;
+  }
+}
+/* Previous readings stay visible, dimmed, while a new period loads. */
+.chart-grid[aria-busy="true"],
+.daily-panel[aria-busy="true"] > :not(.daily-skeleton) {
+  opacity: 0.55;
+  transition: opacity 160ms ease;
 }
 .button {
   min-height: 44px;

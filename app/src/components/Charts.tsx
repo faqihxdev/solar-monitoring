@@ -46,6 +46,20 @@ interface Props {
   voltageThresholds: ThresholdEntry[];
   latest: Reading | null;
   loading: boolean;
+  // A new range or date is loading while the previous readings stay visible.
+  updating?: boolean;
+}
+
+// Matches the loaded grid's panel sizes so the page does not move.
+function ChartsSkeleton() {
+  return (
+    <div className="chart-grid" role="status" aria-label="Loading readings">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="skeleton chart-skeleton" />
+      ))}
+      <div className="skeleton chart-skeleton chart-skeleton-wide" />
+    </div>
+  );
 }
 
 const RANGES: { key: RangeKey; label: string; title?: string }[] = [
@@ -1052,6 +1066,7 @@ export default function Charts({
   voltageThresholds,
   latest,
   loading,
+  updating = false,
 }: Props) {
   const today = todayJkt();
   const isChartToday = chartDate === today;
@@ -1342,17 +1357,16 @@ export default function Charts({
           />
         </div>
       </SectionHeading>
-      {!history && !voltage && loading ? (
-        <div className="page-loading" role="status">
-          Loading historical readings…
-        </div>
+      {(!history && !voltage && loading) ||
+      (updating && !rows.length && !batteryRows.length) ? (
+        <ChartsSkeleton />
       ) : !rows.length && !batteryRows.length ? (
         <EmptyState
           title="No readings in this period"
           description="Choose another date or a longer time range."
         />
       ) : (
-        <div className="chart-grid">
+        <div className="chart-grid" aria-busy={updating}>
           <CombinedSocChart
             data={batteryRows}
             currentPractical={cur(displayedSoc, 0)}

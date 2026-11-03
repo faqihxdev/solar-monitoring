@@ -191,6 +191,7 @@ export default function App() {
               voltageThresholds={voltageThresholds}
               latest={latest}
               loading={history.isPending || voltage.isPending}
+              updating={history.isPlaceholderData || voltage.isPlaceholderData}
             />
           </div>
           <DailyEnergy date={date} setDate={selectDate} />
