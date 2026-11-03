@@ -55,9 +55,11 @@ export default function DailyEnergy({ date, setDate }: Props) {
       </SectionHeading>
       <div className="daily-panel" aria-busy={isFetching}>
         {isLoading ? (
-          <div className="daily-skeleton" role="status">
-            Loading daily energy…
-          </div>
+          <div
+            className="skeleton daily-skeleton"
+            role="status"
+            aria-label="Loading daily energy"
+          />
         ) : isError ? (
           <EmptyState
             title="Daily energy is unavailable"

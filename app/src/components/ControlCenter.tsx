@@ -6,7 +6,9 @@ import {
   Info,
   ListChecks,
   Loader2,
+  Play,
   RefreshCw,
+  Save,
   Send,
   Target,
   X,
@@ -211,6 +213,12 @@ export default function ControlCenter({
   // Tracks unsaved edits so a background refetch (every 30s) never clobbers them.
   const [formDirty, setFormDirty] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  // Success toasts close themselves; warnings and errors wait for dismissal.
+  useEffect(() => {
+    if (feedback?.tone !== "ok") return;
+    const timer = window.setTimeout(() => setFeedback(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
 
   useEffect(() => {
     setDrafts((prev) => {
@@ -519,7 +527,7 @@ export default function ControlCenter({
 
       {feedback && (
         <div
-          className="mb-3 flex items-start gap-2 rounded-card border border-line bg-panel-hi px-3 py-2.5 text-sm leading-relaxed"
+          className="feedback-toast flex items-start gap-2 rounded-card border border-line-hi bg-panel-hi px-3 py-2.5 text-sm leading-relaxed"
           role="status"
           aria-live="polite"
         >
@@ -574,16 +582,24 @@ export default function ControlCenter({
               onClick={readAll}
               disabled={busy}
             >
-              {mutations.readAll.isPending && (
+              {mutations.readAll.isPending ? (
                 <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <RefreshCw size={13} />
               )}
-              {mutations.readAll.isPending ? "Reading…" : "Read all"}
+              Read all
             </button>
           </div>
 
           {controls.isLoading ? (
-            <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
-              Loading cached controls…
+            <div
+              className="grid gap-2"
+              role="status"
+              aria-label="Loading cached controls"
+            >
+              {Array.from({ length: 8 }, (_, i) => (
+                <div key={i} className="skeleton control-skeleton" />
+              ))}
             </div>
           ) : controls.error ? (
             <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
@@ -809,8 +825,10 @@ export default function ControlCenter({
                 formDirty ? "border-charge bg-charge/15 text-text" : ""
               }`}
             >
-              {mutations.updateAutomation.isPending && (
+              {mutations.updateAutomation.isPending ? (
                 <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Save size={13} />
               )}
               Save target
             </button>
@@ -819,8 +837,10 @@ export default function ControlCenter({
               disabled={busy || automation.isLoading || automation.isError}
               className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
             >
-              {mutations.evaluateAutomation.isPending && (
+              {mutations.evaluateAutomation.isPending ? (
                 <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Play size={13} />
               )}
               Evaluate now
             </button>
@@ -840,9 +860,9 @@ export default function ControlCenter({
           </div>
           <div className="flex max-h-112 flex-col gap-2 overflow-auto pr-0.5">
             {log.isLoading ? (
-              <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
-                Loading action log…
-              </div>
+              Array.from({ length: 4 }, (_, i) => (
+                <div key={i} className="skeleton event-skeleton shrink-0" />
+              ))
             ) : log.error ? (
               <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
                 Could not load log: {errorText(log.error)}
@@ -1006,8 +1026,10 @@ function ControlGroup({
                     disabled={busy}
                     aria-label={`Read ${control.label} from inverter`}
                   >
-                    {isReading && (
+                    {isReading ? (
                       <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={11} />
                     )}
                     Read
                   </button>
