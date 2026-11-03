@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert, RefreshCw } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 import Header from "./components/Header";
 import EnergyFlow from "./components/EnergyFlow";
 import type { ControlEntry, ThresholdEntry } from "./api";
@@ -132,42 +132,25 @@ export default function App() {
         fresh={fresh}
         loading={firstLoad}
         polledAtMs={polledAtMs}
+        deviceSn={deviceSn}
+        notice={
+          !firstLoad && (!online || !latest || !fresh)
+            ? {
+                text: `${
+                  !online
+                    ? "The monitoring service is unavailable."
+                    : !latest
+                      ? "Waiting for the first device reading."
+                      : "Telemetry is delayed."
+                }${latest ? " Showing last known flow." : ""}`,
+                retrying: summary.isFetching,
+                onRetry: () => void summary.refetch(),
+              }
+            : null
+        }
       />
       <main id="main-content" className="main-content" tabIndex={-1}>
-        <div className="page-heading">
-          <h1>Energy overview</h1>
-          {deviceSn && <span className="system-identity">{deviceSn}</span>}
-        </div>
-        {firstLoad && (
-          <div className="notice" role="status">
-            <RefreshCw size={15} className="animate-spin" />
-            Connecting…
-          </div>
-        )}
-        {!firstLoad && (!online || !latest || !fresh) && (
-          <div className="notice" role="status">
-            <CircleAlert size={16} />
-            <span>
-              {!online
-                ? "The monitoring service is unavailable."
-                : !latest
-                  ? "Waiting for the first device reading."
-                  : "Telemetry is delayed."}{" "}
-              {latest ? "Showing last known flow." : ""}
-            </span>
-            <button
-              className="text-button"
-              disabled={summary.isFetching}
-              onClick={() => void summary.refetch()}
-            >
-              <RefreshCw
-                size={14}
-                className={summary.isFetching ? "animate-spin" : ""}
-              />
-              Retry
-            </button>
-          </div>
-        )}
+        <h1 className="sr-only">Energy overview</h1>
         <EnergyFlow
           latest={latest}
           voltageThresholds={voltageThresholds}

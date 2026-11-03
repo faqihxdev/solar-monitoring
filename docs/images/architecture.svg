@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="solar-title solar-description">
+  <title id="solar-title">Solar Monitoring architecture</title>
+  <desc id="solar-description">Browsers reach the dashboard through Cloudflare Access and Nginx on a Hetzner VPS. Nginx serves the static React build and proxies /api to the Rust Axum API on a loopback port. A separate Rust poller requests signed DESSMonitor telemetry every five seconds and writes it to SQLite. The API reads SQLite, runs automation checks, and reads or writes inverter controls through DESSMonitor, which reaches the PowMr inverter through its datalogger. A systemd timer writes validated daily SQLite backups.</desc>
+  <defs>
+    <marker id="solar-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+      .node { fill: #171717; stroke: #3b3b3b; stroke-width: 1.5; }
+      .accent { fill: #202020; stroke: #626262; stroke-width: 1.5; }
+      .name { fill: #ededed; font-size: 21px; font-weight: 600; }
+      .detail { fill: #c0c0c0; font-size: 16px; }
+      .caption { fill: #9b9b9b; font-size: 14px; }
+      .edge { fill: none; stroke: #aaa; stroke-width: 2; marker-end: url(#solar-arrow); stroke-linejoin: round; }
+      .both { marker-start: url(#solar-arrow); }
+    </style>
+  </defs>
+  <rect width="1280" height="640" rx="16" fill="#0c0c0c"/>
+  <text x="40" y="42" fill="#ededed" font-size="18" font-weight="600">Solar Monitoring architecture</text>
+  <text class="caption" x="40" y="70">Telemetry and controls both pass through DESSMonitor. Nothing on the VPS talks to the inverter directly.</text>
+
+  <path class="edge both" d="M 200 310 H 250"/>
+  <path class="edge" d="M 450 310 H 500"/>
+  <path class="edge" d="M 700 310 H 750"/>
+  <path class="edge both" d="M 960 310 H 1040"/>
+  <path class="edge both" d="M 1140 210 V 255"/>
+  <path class="edge both" d="M 1140 470 V 365"/>
+  <path class="edge both" d="M 855 365 V 470"/>
+  <path class="edge" d="M 1040 525 H 960"/>
+  <path class="edge" d="M 750 525 H 700"/>
+  <text class="caption" x="725" y="292" text-anchor="middle">/api</text>
+  <text class="caption" x="1000" y="292" text-anchor="middle">Controls</text>
+  <text class="caption" x="1158" y="237">Uplink</text>
+  <text class="caption" x="1158" y="423">Polling</text>
+  <text class="caption" x="873" y="423">Reads · audit</text>
+  <text class="caption" x="1000" y="507" text-anchor="middle">Snapshots</text>
+
+  <rect class="node" x="40" y="255" width="160" height="110" rx="10"/>
+  <text class="name" x="60" y="289">Browser</text>
+  <text class="detail" x="60" y="318">React · Three.js</text>
+  <text class="caption" x="60" y="346">3D or flat diagram</text>
+
+  <rect class="node" x="250" y="255" width="200" height="110" rx="10"/>
+  <text class="name" x="268" y="289">Cloudflare Access</text>
+  <text class="detail" x="268" y="318">Private web access</text>
+  <text class="caption" x="268" y="346">HTTPS → Nginx</text>
+
+  <rect class="node" x="500" y="255" width="200" height="110" rx="10"/>
+  <text class="name" x="520" y="289">Nginx · Hetzner</text>
+  <text class="detail" x="520" y="318">Static React build</text>
+  <text class="caption" x="520" y="346">Proxies /api to loopback</text>
+
+  <rect class="accent" x="750" y="255" width="210" height="110" rx="10"/>
+  <text class="name" x="770" y="289">Rust API</text>
+  <text class="detail" x="770" y="318">Axum · Tokio</text>
+  <text class="caption" x="770" y="346">Guarded writes · automation</text>
+
+  <rect class="node" x="1040" y="255" width="200" height="110" rx="10"/>
+  <text class="name" x="1060" y="289">DESSMonitor</text>
+  <text class="detail" x="1060" y="318">Signed cloud API</text>
+  <text class="caption" x="1060" y="346">Telemetry · control fields</text>
+
+  <rect class="node" x="1040" y="100" width="200" height="110" rx="10"/>
+  <text class="name" x="1060" y="134">PowMr inverter</text>
+  <text class="detail" x="1060" y="163">Datalogger uplink</text>
+  <text class="caption" x="1060" y="191">Panels · battery · PLN</text>
+
+  <rect class="accent" x="1040" y="470" width="200" height="110" rx="10"/>
+  <text class="name" x="1060" y="504">Rust poller</text>
+  <text class="detail" x="1060" y="533">Every 5 seconds</text>
+  <text class="caption" x="1060" y="561">Voltage sync · heartbeat</text>
+
+  <rect class="node" x="750" y="470" width="210" height="110" rx="10"/>
+  <text class="name" x="770" y="504">SQLite · WAL</text>
+  <text class="detail" x="770" y="533">Telemetry · control DBs</text>
+  <text class="caption" x="770" y="561">Audit log · write budgets</text>
+
+  <rect class="node" x="500" y="470" width="200" height="110" rx="10"/>
+  <text class="name" x="520" y="504">Backup timer</text>
+  <text class="detail" x="520" y="533">systemd · daily</text>
+  <text class="caption" x="520" y="561">Validated · keeps 14</text>
+</svg>

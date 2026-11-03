@@ -2,28 +2,21 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Box, RotateCcw, RotateCw, ScanLine } from "lucide-react";
+import { DEVICE_NAMES, type DeviceId } from "../energyViewModel";
 import {
-  DEVICE_NAMES,
-  type DeviceId,
-  type EnergyConnection,
-} from "../energyViewModel";
+  DeviceCallout,
+  SCENE_DEVICE_IDS as IDS,
+  type SceneProps,
+} from "./DeviceCallout";
 import { createHardware } from "./energyModels";
 import { IconButton } from "./ui";
 
-interface Props {
-  connections: EnergyConnection[];
-  selected: DeviceId;
-  onSelect: (id: DeviceId) => void;
-  soc: number | null;
-  motion: boolean;
-}
 interface SceneActions {
   reset: () => void;
   rotate: () => void;
   top: () => void;
   update: () => void;
 }
-const IDS: DeviceId[] = ["solar", "grid", "inverter", "battery", "home"];
 type Point = [number, number, number];
 
 const ANCHORS: Record<DeviceId, Point> = {
@@ -31,7 +24,8 @@ const ANCHORS: Record<DeviceId, Point> = {
   grid: [-4.6, 2.5, -0.75],
   inverter: [0.08, 1.25, 2.17],
   battery: [-1, 1.15, 2.17],
-  home: [2.97, 1.4, 0.8],
+  // The AC distribution box on the front wall, where the home circuit starts.
+  home: [0.98, 1.37, 1.8],
 };
 
 function flowMaterial(length: number) {
@@ -75,7 +69,7 @@ function flowMaterial(length: number) {
   material.customProgramCacheKey = () => "installed-energy-cable-v2";
   return { material, uniforms };
 }
-export default function EnergyScene(props: Props) {
+export default function EnergyScene(props: SceneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const labels = useRef<Partial<Record<DeviceId, HTMLButtonElement | null>>>(
     {},
@@ -466,53 +460,36 @@ export default function EnergyScene(props: Props) {
                   } as CSSProperties
                 }
               >
-                <span>{DEVICE_NAMES[id]}</span>
-                <strong>
-                  {id === "battery"
-                    ? props.soc == null
-                      ? "—"
-                      : `${Math.round(props.soc)}%`
-                    : (connection?.value ?? "DC / AC")}
-                </strong>
-                {connection?.flowDetail && (
-                  <span className="battery-flow-detail">
-                    {connection.flowDetail}
-                  </span>
-                )}
-                {connection && (
-                  <small>
-                    {connection.minimum
-                      ? "Estimated minimum"
-                      : connection.inferred
-                        ? "Estimated power"
-                        : connection.label}
-                  </small>
-                )}
+                <DeviceCallout
+                  id={id}
+                  connections={props.connections}
+                  soc={props.soc}
+                />
               </button>
             );
           })}
         </div>
       </div>
       <div className="scene-bottom">
-        <div className="scene-controls">
+        <div className="segmented scene-controls">
           <IconButton
             label="Rotate view"
             onClick={() => actions.current?.rotate()}
           >
-            <RotateCw size={15} />
+            <RotateCw size={13} />
           </IconButton>
           <IconButton
             label={topView ? "Perspective view" : "Top view"}
             aria-pressed={topView}
             onClick={() => actions.current?.top()}
           >
-            {topView ? <Box size={15} /> : <ScanLine size={15} />}
+            {topView ? <Box size={13} /> : <ScanLine size={13} />}
           </IconButton>
           <IconButton
             label="Reset view"
             onClick={() => actions.current?.reset()}
           >
-            <RotateCcw size={15} />
+            <RotateCcw size={13} />
           </IconButton>
         </div>
       </div>

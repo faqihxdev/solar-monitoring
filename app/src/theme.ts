@@ -14,6 +14,8 @@ export const C = {
   discharge: "#e8743b",
   grid: "#4a93c4",
   load: "#12c8bd",
+  // Consumption totals in energy charts, distinct from the colored sources.
+  consumption: "#ffffff",
   battery: "#9c7bd4",
 
   ok: "#4eb45a",

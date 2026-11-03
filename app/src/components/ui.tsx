@@ -33,7 +33,11 @@ export function DateNavigator({
 }) {
   const today = todayJkt();
   return (
-    <div className="date-navigator" aria-label="Selected date">
+    <div
+      className="segmented date-navigator"
+      role="group"
+      aria-label="Selected date"
+    >
       <IconButton
         label="Previous day"
         onClick={() => onChange(offsetDate(date, -1))}
