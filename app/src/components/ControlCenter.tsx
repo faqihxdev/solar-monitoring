@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -177,21 +177,16 @@ function automationExplanation(
   };
 }
 
-const feedbackToneClass: Record<FeedbackTone, string> = {
-  ok: "border-l-charge",
-  warn: "border-l-solar",
-  bad: "border-l-bad",
-};
 const feedbackIconToneClass: Record<FeedbackTone, string> = {
   ok: "text-charge",
   warn: "text-solar",
   bad: "text-bad",
 };
 const eventToneClass: Record<string, string> = {
-  success: "border-l-charge",
-  failed: "border-l-bad",
-  skipped: "border-l-grid",
-  sent: "border-l-solar",
+  success: "bg-charge",
+  failed: "bg-bad",
+  skipped: "bg-grid",
+  sent: "bg-solar",
 };
 
 interface ControlCenterProps {
@@ -524,7 +519,7 @@ export default function ControlCenter({
 
       {feedback && (
         <div
-          className={`mb-3 flex items-start gap-2 rounded-card border border-line border-l-2 bg-panel-hi px-3 py-2.5 text-sm leading-relaxed ${feedbackToneClass[feedback.tone]}`}
+          className="mb-3 flex items-start gap-2 rounded-card border border-line bg-panel-hi px-3 py-2.5 text-sm leading-relaxed"
           role="status"
           aria-live="polite"
         >
@@ -563,6 +558,67 @@ export default function ControlCenter({
         </div>
       )}
       <div className="grid grid-cols-1 gap-3">
+        <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-dim">
+                <RefreshCw size={14} strokeWidth={1.8} /> Device controls
+              </div>
+              <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
+                Values show read freshness. Writes are read-before-write and
+                verified after send.
+              </p>
+            </div>
+            <button
+              className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
+              onClick={readAll}
+              disabled={busy}
+            >
+              {mutations.readAll.isPending && (
+                <Loader2 size={13} className="animate-spin" />
+              )}
+              {mutations.readAll.isPending ? "Reading…" : "Read all"}
+            </button>
+          </div>
+
+          {controls.isLoading ? (
+            <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+              Loading cached controls…
+            </div>
+          ) : controls.error ? (
+            <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
+              Could not load controls: {errorText(controls.error)}
+            </div>
+          ) : (
+            <>
+              <ControlGroup
+                title="Battery settings"
+                controls={grouped.battery}
+                drafts={drafts}
+                setDraft={setDraft}
+                sendControl={sendControl}
+                readOne={readControl}
+                busy={busy}
+                writingId={writingId}
+                readingId={readingId}
+                controlLabelColors={controlLabelColors}
+              />
+              <ControlGroup
+                title="Inverter settings"
+                controls={grouped.other}
+                drafts={drafts}
+                setDraft={setDraft}
+                sendControl={sendControl}
+                readOne={readControl}
+                busy={busy}
+                writingId={writingId}
+                readingId={readingId}
+                controlLabelColors={controlLabelColors}
+              />
+            </>
+          )}
+        </div>
+
         <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
             <div>
@@ -716,20 +772,11 @@ export default function ControlCenter({
             <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
               <span className="flex items-center gap-1 text-[10px] text-faint">
                 Protection band
-                <span className="group relative inline-flex">
-                  <button
-                    type="button"
-                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-line text-faint transition-colors hover:border-line-hi hover:text-text focus-visible:border-line-hi focus-visible:text-text focus-visible:outline-none"
-                    aria-label="Protection band limits info"
-                  >
-                    <Info size={9} strokeWidth={2} />
-                  </button>
-                  <span className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1.5 w-44 -translate-x-1/2 rounded-card border border-line bg-panel px-2 py-1.5 text-[10px] normal-case tracking-normal text-faint opacity-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)] transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                    {status?.target_band_capped
-                      ? "Capped by inverter limits"
-                      : "Within inverter limits"}
-                  </span>
-                </span>
+                <InfoTip label="Protection band limits info">
+                  {status?.target_band_capped
+                    ? "Capped by inverter limits"
+                    : "Within inverter limits"}
+                </InfoTip>
               </span>
               <span className="mt-0.5 block font-mono text-xs font-medium text-text">
                 {targetBandLabel}
@@ -743,7 +790,7 @@ export default function ControlCenter({
             </div>
           </div>
 
-          <div className="mt-2.5 rounded-card border border-line border-l-2 border-l-battery bg-panel-hi px-3 py-2.5">
+          <div className="mt-2.5 rounded-card border border-line bg-panel-hi px-3 py-2.5">
             <span className="text-xs font-semibold text-text">
               Now: {explain.title}
             </span>
@@ -778,67 +825,6 @@ export default function ControlCenter({
               Evaluate now
             </button>
           </div>
-        </div>
-
-        <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
-            <div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-dim">
-                <RefreshCw size={14} strokeWidth={1.8} /> Device controls
-              </div>
-              <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
-                Values show read freshness. Writes are read-before-write and
-                verified after send.
-              </p>
-            </div>
-            <button
-              className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
-              onClick={readAll}
-              disabled={busy}
-            >
-              {mutations.readAll.isPending && (
-                <Loader2 size={13} className="animate-spin" />
-              )}
-              {mutations.readAll.isPending ? "Reading…" : "Read all"}
-            </button>
-          </div>
-
-          {controls.isLoading ? (
-            <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
-              Loading cached controls…
-            </div>
-          ) : controls.error ? (
-            <div className="col-span-full rounded-card border border-line bg-panel px-3 py-2.5 text-xs text-faint">
-              Could not load controls: {errorText(controls.error)}
-            </div>
-          ) : (
-            <>
-              <ControlGroup
-                title="Battery settings"
-                controls={grouped.battery}
-                drafts={drafts}
-                setDraft={setDraft}
-                sendControl={sendControl}
-                readOne={readControl}
-                busy={busy}
-                writingId={writingId}
-                readingId={readingId}
-                controlLabelColors={controlLabelColors}
-              />
-              <ControlGroup
-                title="Inverter settings"
-                controls={grouped.other}
-                drafts={drafts}
-                setDraft={setDraft}
-                sendControl={sendControl}
-                readOne={readControl}
-                busy={busy}
-                writingId={writingId}
-                readingId={readingId}
-                controlLabelColors={controlLabelColors}
-              />
-            </>
-          )}
         </div>
 
         <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
@@ -943,18 +929,9 @@ function ControlGroup({
                       </span>
                     )}
                     {control.hint && (
-                      <span className="group relative inline-flex shrink-0">
-                        <button
-                          type="button"
-                          className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-line text-[10px] font-semibold text-faint transition-colors hover:border-line-hi hover:text-text focus-visible:border-line-hi focus-visible:text-text focus-visible:outline-none"
-                          aria-label={`${control.label} description`}
-                        >
-                          i
-                        </button>
-                        <span className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1.5 w-56 -translate-x-1/2 rounded-card border border-line bg-panel px-2 py-1.5 text-[10px] leading-tight text-faint opacity-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)] transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                          {control.hint}
-                        </span>
-                      </span>
+                      <InfoTip label={`${control.label} description`}>
+                        {control.hint}
+                      </InfoTip>
                     )}
                   </div>
                 </div>
@@ -964,7 +941,7 @@ function ControlGroup({
                 >
                   <span className="block truncate">{control.id}</span>
                 </div>
-                <div className="inline-flex items-center gap-1 text-[10px] text-faint lg:col-span-1 lg:justify-self-end lg:pr-1">
+                <div className="inline-flex items-center gap-1 whitespace-nowrap text-[10px] text-faint lg:col-span-1 lg:justify-self-end lg:pr-1">
                   <Clock3 size={10} /> {ageLabel(control.read_at)}
                 </div>
                 <div className="lg:col-span-3">
@@ -1064,36 +1041,48 @@ function ControlGroup({
   );
 }
 
+function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="group relative inline-flex shrink-0">
+      <button type="button" className="info-tip" aria-label={label}>
+        <Info size={10} strokeWidth={2} />
+      </button>
+      <span className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1.5 w-56 -translate-x-1/2 rounded-card border border-line bg-panel px-2 py-1.5 text-[10px] font-normal leading-tight normal-case tracking-normal text-faint opacity-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)] transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+        {children}
+      </span>
+    </span>
+  );
+}
+
 function EventRow({ event }: { event: ControlEvent }) {
   return (
-    <div
-      className={`grid grid-cols-1 gap-2.5 rounded-card border border-line border-l-2 bg-panel-hi px-2.5 py-2.5 sm:px-3 md:grid-cols-5 md:gap-3 ${eventToneClass[event.status] ?? "border-l-line"}`}
-    >
-      <div className="font-mono text-xs tabular-nums text-faint md:col-span-1">
-        {eventTime(event)}
-      </div>
-      <div className="min-w-0 md:col-span-4">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-text">{event.action}</span>
-          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">
-            {event.actor}
+    <div className="rounded-card border border-line bg-panel-hi px-2.5 py-2 sm:px-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${eventToneClass[event.status] ?? "bg-line-hi"}`}
+        />
+        <span className="whitespace-nowrap font-mono text-xs tabular-nums text-faint">
+          {eventTime(event)}
+        </span>
+        <span className="text-xs text-text">{event.action}</span>
+        <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">
+          {event.actor}
+        </span>
+        {event.field_id && (
+          <span className="rounded-full border border-line px-2 py-0.5 font-mono text-xs text-faint">
+            {event.field_id}
           </span>
-          {event.field_id && (
-            <span className="rounded-full border border-line px-2 py-0.5 font-mono text-xs text-faint">
-              {event.field_id}
-            </span>
-          )}
-          <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">
-            {event.status}
-          </span>
-        </div>
-        <p className="mt-2 text-xs leading-snug text-dim">{event.reason}</p>
+        )}
+        <span className="rounded-full border border-line px-2 py-0.5 text-xs text-faint">
+          {event.status}
+        </span>
         {(event.value_before != null || event.value_after != null) && (
-          <div className="mt-1.5 font-mono text-xs tabular-nums text-faint">
+          <span className="font-mono text-xs tabular-nums text-faint">
             {event.value_before ?? "—"} → {event.value_after ?? "—"}
-          </div>
+          </span>
         )}
       </div>
+      <p className="mt-1 mb-0 text-xs leading-snug text-dim">{event.reason}</p>
     </div>
   );
 }

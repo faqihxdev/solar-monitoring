@@ -91,7 +91,7 @@ export default function DailyEnergy({ date, setDate }: Props) {
                   </div>
                   <div className="daily-total">
                     <span>
-                      <i style={{ background: C.load }} />
+                      <i style={{ background: C.consumption }} />
                       Consumed
                     </span>
                     <strong>
@@ -131,7 +131,7 @@ export default function DailyEnergy({ date, setDate }: Props) {
                     Generated
                   </span>
                   <span>
-                    <i style={{ background: C.load }} />
+                    <i style={{ background: C.consumption }} />
                     Consumed
                   </span>
                 </div>
@@ -192,7 +192,7 @@ export default function DailyEnergy({ date, setDate }: Props) {
                     <Bar
                       dataKey="load_kwh"
                       name="Consumed"
-                      fill={C.load}
+                      fill={C.consumption}
                       radius={[3, 3, 0, 0]}
                       maxBarSize={22}
                       isAnimationActive={false}

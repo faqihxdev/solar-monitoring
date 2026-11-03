@@ -1,18 +1,10 @@
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-} from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
   Battery,
   Box,
-  Cable,
   ChevronRight,
   CircuitBoard,
   Home,
@@ -40,6 +32,17 @@ import { C, statusLabel } from "../theme";
 import { IconButton } from "./ui";
 
 const EnergyScene = lazy(() => import("./EnergyScene"));
+const FlatScene = lazy(() => import("./FlatScene"));
+type SceneView = "3d" | "flat";
+const VIEW_KEY = "energy-flow-view";
+
+function storedView(): SceneView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "flat" ? "flat" : "3d";
+  } catch {
+    return "3d";
+  }
+}
 const DEVICE_ICONS = {
   solar: Sun,
   inverter: CircuitBoard,
@@ -97,11 +100,19 @@ export default function EnergyFlow({
   fresh,
 }: Props) {
   const [selected, setSelected] = useState<DeviceId>("battery");
+  const [view, setView] = useState(storedView);
+  function changeView(next: SceneView) {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // The choice still applies for this visit.
+    }
+  }
   const [paused, setPaused] = useState(false);
   const [reduced, setReduced] = useState(
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
-  const [showConnections, setShowConnections] = useState(false);
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     const change = () => setReduced(media.matches);
@@ -298,6 +309,13 @@ export default function EnergyFlow({
     },
   };
   const detail = details[selected];
+  const sceneProps = {
+    connections,
+    selected,
+    onSelect: setSelected,
+    soc: practical.practicalSocPct,
+    motion: !paused && !reduced,
+  };
   return (
     <section className="energy-overview" aria-label="System overview">
       <div className="metric-strip">
@@ -322,45 +340,68 @@ export default function EnergyFlow({
         ))}
       </div>
       <div className="system-panel">
-        <div className="system-panel-header">
-          <h2>Energy flow</h2>
-          <div className="scene-toolbar">
-            <span className={`live-badge ${fresh ? "is-live" : ""}`}>
-              <span className="status-dot" />
-              {fresh ? "Live" : latest ? "Last reading" : "No data"}
-            </span>
-            <IconButton
-              label={paused ? "Resume flow animation" : "Pause flow animation"}
-              onClick={() => setPaused(!paused)}
-              aria-pressed={paused}
-              disabled={reduced}
-              title={
-                reduced
-                  ? "Animation follows your reduced motion preference"
-                  : undefined
+        <h2 className="sr-only">Energy flow</h2>
+        <div className="system-content">
+          <div className="scene-stage">
+            <div className="scene-toolbar">
+              <div
+                className="segmented"
+                role="group"
+                aria-label="Diagram style"
+              >
+                {(
+                  [
+                    ["3d", "3D"],
+                    ["flat", "Flat"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={view === id}
+                    onClick={() => changeView(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className={`live-badge ${fresh ? "is-live" : ""}`}>
+                <span className="status-dot" />
+                {fresh ? "Live" : latest ? "Last reading" : "No data"}
+              </span>
+              <div className="segmented">
+                <IconButton
+                  label={
+                    paused ? "Resume flow animation" : "Pause flow animation"
+                  }
+                  onClick={() => setPaused(!paused)}
+                  aria-pressed={paused}
+                  disabled={reduced}
+                  title={
+                    reduced
+                      ? "Animation follows your reduced motion preference"
+                      : undefined
+                  }
+                >
+                  {paused || reduced ? <Play size={13} /> : <Pause size={13} />}
+                </IconButton>
+              </div>
+            </div>
+            <Suspense
+              fallback={
+                <div className="scene-placeholder" role="status">
+                  <Box size={28} />
+                  <span>Loading…</span>
+                </div>
               }
             >
-              {paused || reduced ? <Play size={14} /> : <Pause size={14} />}
-            </IconButton>
+              {view === "flat" ? (
+                <FlatScene {...sceneProps} />
+              ) : (
+                <EnergyScene {...sceneProps} />
+              )}
+            </Suspense>
           </div>
-        </div>
-        <div className="system-content">
-          <Suspense
-            fallback={
-              <div className="scene-placeholder" role="status">
-                <Box size={28} />
-                <span>Loading…</span>
-              </div>
-            }
-          >
-            <EnergyScene
-              connections={connections}
-              selected={selected}
-              onSelect={setSelected}
-              soc={practical.practicalSocPct}
-              motion={!paused && !reduced}
-            />
-          </Suspense>
           <aside
             id="device-inspector"
             className="device-inspector"
@@ -431,78 +472,6 @@ export default function EnergyFlow({
             )}
           </aside>
         </div>
-        <div className="connection-footer">
-          <div className="flow-legend">
-            <span>
-              <i style={{ background: C.solar }} />
-              Solar
-            </span>
-            <span>
-              <i style={{ background: C.charge }} />
-              Charge
-            </span>
-            <span>
-              <i style={{ background: C.discharge }} />
-              Discharge
-            </span>
-            <span>
-              <i style={{ background: C.grid }} />
-              Grid
-            </span>
-            <span>
-              <i style={{ background: C.load }} />
-              Home
-            </span>
-          </div>
-          <button
-            className="text-button"
-            onClick={() => setShowConnections(!showConnections)}
-            aria-expanded={showConnections}
-            aria-controls="connection-details"
-          >
-            <Cable size={14} />
-            Connections
-            <ChevronRight
-              size={14}
-              style={{
-                transform: showConnections ? "rotate(90deg)" : undefined,
-              }}
-            />
-          </button>
-        </div>
-        {showConnections && (
-          <div id="connection-details" className="connection-details">
-            {connections.map((c) => (
-              <div
-                key={c.id}
-                style={{ "--flow-color": c.color } as CSSProperties}
-              >
-                <span className="connection-type">{c.label}</span>
-                <span>
-                  {DEVICE_NAMES[c.from]}
-                  <ArrowRight size={13} />
-                  {DEVICE_NAMES[c.to]}
-                </span>
-                <strong>{c.value}</strong>
-                <small>
-                  {!latest
-                    ? "No reading"
-                    : !fresh
-                      ? "Last reading"
-                      : c.minimum
-                        ? "Estimated minimum"
-                        : c.unmetered
-                          ? "Reported path"
-                          : c.inferred
-                            ? "Estimated"
-                            : c.active
-                              ? "Active"
-                              : "Idle"}
-                </small>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </section>
   );

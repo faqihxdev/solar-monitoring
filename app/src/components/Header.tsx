@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { Activity, Maximize2, Minimize2, Sun } from "lucide-react";
+import {
+  Activity,
+  CircleAlert,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+} from "lucide-react";
 import {
   DISPLAY_TIME_LABEL,
   DISPLAY_TIME_ZONE,
@@ -21,9 +27,18 @@ interface Props {
   fresh: boolean;
   polledAtMs: number | null;
   loading: boolean;
+  deviceSn: string;
+  notice?: { text: string; retrying: boolean; onRetry: () => void } | null;
 }
 
-export default function Header({ online, fresh, polledAtMs, loading }: Props) {
+export default function Header({
+  online,
+  fresh,
+  polledAtMs,
+  loading,
+  deviceSn,
+  notice,
+}: Props) {
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState("");
   const [now, setNow] = useState(Date.now());
@@ -61,53 +76,58 @@ export default function Header({ online, fresh, polledAtMs, loading }: Props) {
       </a>
       <header className="app-header">
         <div className="header-inner">
-          <a
-            href="#overview"
-            className="brand"
-            aria-label="Solar home overview"
-          >
-            <span className="brand-mark">
-              <Sun size={23} strokeWidth={1.5} />
-            </span>
-            <span>Solar</span>
-          </a>
-          <div className="header-status">
-            <div className="header-telemetry">
-              <div className="header-clock-row">
-                <time
-                  className="local-clock"
-                  aria-label="Jakarta local time"
-                  dateTime={new Date(now).toISOString()}
-                >
-                  {localClock.format(now)} <small>{DISPLAY_TIME_LABEL}</small>
-                </time>
-                <span className="connection-status">
-                  <span
-                    className={`status-dot ${fresh ? "is-live" : !online ? "is-offline" : ""}`}
-                  />
-                  {status}
-                </span>
-              </div>
-              <span
-                className="last-update"
-                title={
-                  polledAtMs == null
-                    ? undefined
-                    : `${fullTime(polledAtMs)} ${DISPLAY_TIME_LABEL}`
-                }
+          {deviceSn && <span className="system-identity">{deviceSn}</span>}
+          {notice && (
+            <div className="header-notice" role="status">
+              <CircleAlert size={13} />
+              <span>{notice.text}</span>
+              <button
+                type="button"
+                className="header-retry"
+                disabled={notice.retrying}
+                onClick={notice.onRetry}
               >
-                {polledAtMs == null
-                  ? "No update yet"
-                  : `Updated ${relativeAge(now - polledAtMs)}`}
-              </span>
+                <RefreshCw
+                  size={12}
+                  className={notice.retrying ? "animate-spin" : ""}
+                />
+                Retry
+              </button>
             </div>
+          )}
+          <div className="header-status">
+            <time
+              className="local-clock"
+              aria-label="Jakarta local time"
+              dateTime={new Date(now).toISOString()}
+            >
+              {localClock.format(now)} <small>{DISPLAY_TIME_LABEL}</small>
+            </time>
+            <span className="connection-status">
+              <span
+                className={`status-dot ${fresh ? "is-live" : !online ? "is-offline" : ""}`}
+              />
+              {status}
+            </span>
+            <span
+              className="last-update"
+              title={
+                polledAtMs == null
+                  ? undefined
+                  : `${fullTime(polledAtMs)} ${DISPLAY_TIME_LABEL}`
+              }
+            >
+              {polledAtMs == null
+                ? "No update yet"
+                : `Updated ${relativeAge(now - polledAtMs)}`}
+            </span>
             <IconButton
               label={fullscreen ? "Exit full screen" : "Enter full screen"}
               onClick={toggleFullscreen}
               disabled={!document.fullscreenEnabled}
               aria-pressed={fullscreen}
             >
-              {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+              {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             </IconButton>
           </div>
         </div>

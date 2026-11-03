@@ -402,7 +402,7 @@ function CombinedSocChart({
 }
 
 // White keeps the load boundary distinct over the stacked source colors.
-const ENERGY_SOURCES_LOAD_COLOR = "#ffffff";
+const ENERGY_SOURCES_LOAD_COLOR = C.consumption;
 const SOLAR_LOAD_ORDER = [
   "Solar",
   "Grid",
@@ -1312,10 +1312,14 @@ export default function Charts({
     <section className="charts-section" aria-label="Energy trends">
       <SectionHeading
         title="Trends"
-        description={isChartToday ? "GMT+7" : "Period-end values · GMT+7"}
+        description={isChartToday ? undefined : "Period-end values"}
       >
         <div className="range-controls">
-          <div className="range-buttons" aria-label="Time range">
+          <div
+            className="segmented range-buttons"
+            role="group"
+            aria-label="Time range"
+          >
             {RANGES.map((r) => (
               <button
                 key={r.key}

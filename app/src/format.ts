@@ -32,7 +32,8 @@ export function relativeAge(ageMs: number): string {
   const min = Math.floor(sec / 60);
   if (min < 60) return `${min}m ${sec % 60}s ago`;
   const hr = Math.floor(min / 60);
-  return `${hr}h ${min % 60}m ago`;
+  if (hr < 24) return `${hr}h ${min % 60}m ago`;
+  return `${Math.floor(hr / 24)}d ${hr % 24}h ago`;
 }
 
 export const DISPLAY_TIME_ZONE = "Asia/Jakarta";
