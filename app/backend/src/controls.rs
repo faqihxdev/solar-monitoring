@@ -1,37 +1,20 @@
+//! Guarded reads and writes of inverter settings, with an audit trail in the control database.
 use crate::{
     config::Config,
     db::{Db, Readers},
-    dess::Dess,
+    inverter::{self, Device, Inverter},
     jakarta_date, now, number, text,
 };
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
-pub const A6: &str = "bat_power_supply_value";
-pub const A7: &str = "bat_mains_power_supply_value";
-const ORDER: [&str; 4] = [
-    "bat_low_voltage_protection_value",
-    "bat_low_voltage_recovery_value",
-    A6,
-    A7,
-];
-pub fn catalog() -> &'static Vec<Value> {
-    static FIELDS: OnceLock<Vec<Value>> = OnceLock::new();
-    FIELDS.get_or_init(|| {
-        serde_json::from_str(include_str!("control_catalog.json"))
-            .expect("embedded control catalog")
-    })
+pub fn catalog() -> &'static [Value] {
+    Device::catalog()
 }
 pub fn threshold_defaults() -> &'static Value {
-    static FIELDS: OnceLock<Value> = OnceLock::new();
-    FIELDS.get_or_init(|| {
-        serde_json::from_str(include_str!("threshold_catalog.json")).expect("embedded thresholds")
-    })
+    Device::threshold_defaults()
 }
 fn spec(id: &str) -> Result<Value> {
     catalog()
@@ -82,7 +65,7 @@ pub fn same(spec: &Value, before: &Value, requested: &str) -> bool {
     };
     if spec["type"] == "number" {
         if let (Ok(a), Ok(b)) = (before.parse::<f64>(), requested.parse::<f64>()) {
-            return (a - b).abs() <= if spec["id"] == A6 { 0.05 } else { 0.0001 };
+            return (a - b).abs() <= Device::tolerance(spec["id"].as_str().unwrap_or(""));
         }
     }
     before == requested
@@ -99,8 +82,10 @@ pub fn response(spec: &Value, record: &Value) -> Value {
 pub fn thresholds(records: &[Value]) -> Value {
     let mut thresholds = threshold_defaults().clone();
     let mut count = 0;
+    let mut total = 0;
     for group in ["battery_voltage", "battery_soc"] {
         for entry in thresholds[group].as_array_mut().unwrap() {
+            total += 1;
             let record = records.iter().find(|r| r["field_id"] == entry["field_id"]);
             let value = record.and_then(|r| {
                 number(&r["pack_value"]).or_else(|| {
@@ -114,7 +99,7 @@ pub fn thresholds(records: &[Value]) -> Value {
             }
         }
     }
-    json!({"thresholds":thresholds,"source":if count==7{"cache"}else if count>0{"mixed"}else{"defaults"},"fields_read":count})
+    json!({"thresholds":thresholds,"source":if count==total{"cache"}else if count>0{"mixed"}else{"defaults"},"fields_read":count})
 }
 
 #[derive(Clone)]
@@ -122,7 +107,7 @@ pub struct Controls {
     pub config: Arc<Config>,
     pub db: Db,
     pub readers: Readers,
-    pub dess: Dess,
+    pub device: Device,
     pub gate: Arc<Mutex<()>>,
 }
 pub struct Event<'a> {
@@ -136,12 +121,12 @@ pub struct Event<'a> {
     pub details: Value,
 }
 impl Controls {
-    pub fn new(config: Arc<Config>, db: Db, readers: Readers, dess: Dess) -> Self {
+    pub fn new(config: Arc<Config>, db: Db, readers: Readers, device: Device) -> Self {
         Self {
             config,
             db,
             readers,
-            dess,
+            device,
             gate: Arc::new(Mutex::new(())),
         }
     }
@@ -198,9 +183,9 @@ impl Controls {
     }
     pub async fn read(&self, id: &str, actor: &str, reason: &str) -> Result<Value> {
         let mut field = spec(id)?;
-        let payload = self.dess.read_control(id).await?;
-        let raw = text(&payload["dat"]["val"]);
-        if let Some(label) = text(&payload["dat"]["name"]) {
+        let value = self.device.read_value(id).await?;
+        let raw = value.raw;
+        if let Some(label) = value.label {
             field["label"] = json!(label);
         }
         let sn = self.config.sn.clone();
@@ -255,16 +240,16 @@ impl Controls {
         for group in ["battery_voltage", "battery_soc"] {
             for field in threshold_defaults()[group].as_array().unwrap() {
                 let id = field["field_id"].as_str().unwrap();
-                match self.dess.read_control(id).await {
-                    Ok(payload) => {
-                        let raw = text(&payload["dat"]["val"]);
+                match self.device.read_value(id).await {
+                    Ok(value) => {
+                        let raw = value.raw;
                         if raw
                             .as_ref()
                             .and_then(|s| s.parse::<f64>().ok())
                             .is_some_and(|n| n.is_finite())
                         {
                             let mut spec = spec(id)?;
-                            if let Some(name) = text(&payload["dat"]["name"]) {
+                            if let Some(name) = value.label {
                                 spec["label"] = json!(name);
                             }
                             let sn = self.config.sn.clone();
@@ -306,6 +291,11 @@ impl Controls {
             field["label"].as_str().unwrap_or(id)
         );
         ensure!(
+            inverter::PROFILE.writes,
+            "{} does not support setting writes",
+            inverter::PROFILE.name
+        );
+        ensure!(
             self.config.allow_device_writes,
             "Device writes are disabled; --allow-device-writes is required"
         );
@@ -343,33 +333,8 @@ impl Controls {
                 );
             }
         }
-        if ORDER.contains(&id) {
-            let mut values = Vec::new();
-            for key in ORDER {
-                let raw = if key == id {
-                    json!(requested)
-                } else {
-                    self.read(key, actor, "Read voltage threshold for ordering validation")
-                        .await?["raw_value"]
-                        .clone()
-                };
-                values.push(number(&raw).context(
-                    "Cannot validate voltage ordering because one A4/A5/A6/A7 value is missing",
-                )?);
-            }
-            let [a4, a5, a6, a7] = values[..] else {
-                unreachable!()
-            };
-            ensure!(
-                a6 > a7 && a7 > a4,
-                "Voltage ordering must satisfy A6 > A7 > A4"
-            );
-            ensure!(
-                a6 > a5 && a5 > a4,
-                "Voltage ordering must satisfy A6 > A5 > A4"
-            );
-        }
-        let payload = self.dess.write_control(id, &requested).await?;
+        Device::check_write(self, id, &requested, actor).await?;
+        let payload = self.device.write_value(id, &requested).await?;
         let mut details = self.telemetry_details().await?;
         details["response"] = payload;
         self.event(Event {
@@ -411,35 +376,6 @@ impl Controls {
         .await?;
         Ok(
             json!({"field_id":id,"status":if ok{"written"}else{"failed"},"reason":if ok{"verified"}else{"verification_failed"},"before":before,"requested":requested,"verified":verified}),
-        )
-    }
-    pub async fn test_a6(&self) -> Result<Value> {
-        let _guard = self.gate.lock().await;
-        let original = self
-            .read(A6, "test", "Read original A6 before write-restore test")
-            .await?;
-        let n = number(&original["raw_value"])
-            .context("A6 is not numeric; cannot run write-restore test")?;
-        let test = ((n + 0.1) * 10.0).round() / 10.0;
-        let write = self
-            .write_locked(
-                A6,
-                &json!(test),
-                "Live API test: increase A6 by 0.1V and verify",
-                "test",
-            )
-            .await;
-        // Always attempt restoration, including when verification of the test write fails.
-        let restore = self
-            .write_locked(
-                A6,
-                &json!(n),
-                "Live API test: restore A6 to original value",
-                "test",
-            )
-            .await?;
-        Ok(
-            json!({"original":original["raw_value"],"test_value":test.to_string(),"write":write?,"restore":restore}),
         )
     }
 }

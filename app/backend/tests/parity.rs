@@ -1,11 +1,16 @@
+#![cfg(feature = "dess")]
 mod common;
 use common::*;
 use serde_json::{Value, json};
 use solar_backend::{
-    automation::{band, default_state, desired},
     config::validate_paths,
     db::Store,
-    dess, energy,
+    energy,
+    inverter::dess::{
+        self,
+        automation::{band, default_state, desired},
+        parse,
+    },
 };
 use std::io::Read;
 
@@ -34,7 +39,7 @@ fn energy_matches_9600_typescript_cases() {
 #[test]
 fn parsing_and_jakarta_timestamps_match_typescript() {
     let case: Value = serde_json::from_str(include_str!("fixtures/parsing.json")).unwrap();
-    let payload = energy::payload(&case["last"], &case["flow"]);
+    let payload = parse::payload(&case["last"], &case["flow"]);
     compare(
         &payload["readings"],
         &case["extracted"]["readings"],
@@ -46,14 +51,14 @@ fn parsing_and_jakarta_timestamps_match_typescript() {
         "raw",
     );
     compare(
-        &json!(dess::details(&case["details"])),
+        &json!(parse::details(&case["details"])),
         &case["samples"],
         "details",
     );
     let mut last = case["last"].clone();
     last["pars"]["pv_"] = json!([]);
     assert_eq!(
-        energy::payload(&last, &case["flow"])["readings"]["pv_power"],
+        parse::payload(&last, &case["flow"])["readings"]["pv_power"],
         606.0
     );
 }
@@ -107,7 +112,7 @@ fn rust_recognizes_the_legacy_snapshot_hash() {
     let case: Value = serde_json::from_str(include_str!("fixtures/parsing.json")).unwrap();
     let mut last = case["last"].clone();
     last["gts"] = json!("gts-179");
-    let payload = energy::payload(&last, &case["flow"]);
+    let payload = parse::payload(&last, &case["flow"]);
     let hash: Value = serde_json::from_str(include_str!("fixtures/hash.json")).unwrap();
     assert_eq!(
         solar_backend::db::canonical(&payload),
@@ -156,6 +161,7 @@ async fn automation_status_matches_24_typescript_scenarios() {
             .await
             .unwrap();
         let actual = app
+            .extras
             .automation
             .status_at(case["at"].as_f64().unwrap())
             .await
@@ -169,8 +175,8 @@ async fn automation_status_matches_24_typescript_scenarios() {
 #[test]
 fn battery_curve_and_tracking_band_keep_reachable_limits() {
     for n in [0.0, 5.0, 25.0, 50.0, 70.0, 90.0, 100.0] {
-        let voltage = energy::interpolate(n, true);
-        assert!((energy::interpolate(voltage, false) - n).abs() < 1e-8);
+        let voltage = dess::interpolate(n, true);
+        assert!((dess::interpolate(voltage, false) - n).abs() < 1e-8);
         let b = band(voltage.min(26.6));
         assert!(b.a6 > b.a7 && b.a6 <= 13.4);
     }

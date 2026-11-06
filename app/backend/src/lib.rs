@@ -1,12 +1,11 @@
 pub mod api;
-pub mod automation;
 pub mod backup;
 pub mod config;
 pub mod controls;
 pub mod db;
-pub mod dess;
 pub mod energy;
 pub mod history;
+pub mod inverter;
 pub mod poller;
 
 pub fn now() -> f64 {
