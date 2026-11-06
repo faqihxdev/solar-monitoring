@@ -2,6 +2,14 @@ export interface ReadingsRaw {
   [key: string]: string | null | undefined;
 }
 
+// One MPPT input, for inverters that report them separately.
+export interface PvString {
+  name: string;
+  power: number | null;
+  voltage: number | null;
+  current?: number | null;
+}
+
 export interface Reading {
   device_gts?: string | null;
   battery_soc: number | null;
@@ -30,6 +38,7 @@ export interface Reading {
   polled_at: number;
   polled_at_iso?: string | null;
   readings_raw?: ReadingsRaw;
+  pv_strings?: PvString[];
 }
 
 export interface Summary {
