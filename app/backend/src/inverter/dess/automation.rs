@@ -1,8 +1,7 @@
-use crate::{
-    controls::{A6, A7, Controls},
-    energy::interpolate,
-    jakarta_date, now, number,
-};
+//! Charge-target automation for PowMr inverters: moves the A6/A7 switching band so the
+//! battery reaches a target charge by a set time.
+use super::{A6, A7, interpolate};
+use crate::{controls::Controls, jakarta_date, now, number};
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use std::sync::Arc;

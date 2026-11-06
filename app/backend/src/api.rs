@@ -1,10 +1,10 @@
 use crate::{
-    automation::Automation,
     config::Config,
     controls::{Controls, thresholds},
     db::{Db, Readers},
-    dess::Dess,
-    energy, iso, now, number,
+    energy,
+    inverter::{self, Device, Extras, Inverter, VendorExtras},
+    iso, now, number,
 };
 use anyhow::{Result, ensure};
 use axum::{
@@ -21,7 +21,6 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
 };
 use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -37,7 +36,7 @@ pub struct App {
     pub readers: Readers,
     pub control: Db,
     pub controls: Controls,
-    pub automation: Automation,
+    pub extras: Extras,
     pub stopping: Arc<AtomicBool>,
     pub cancel: CancellationToken,
     pub tasks: TaskTracker,
@@ -47,18 +46,18 @@ impl App {
     pub async fn open(config: Arc<Config>, readers: usize) -> Result<Self> {
         let read = Readers::open(&config.telemetry_db, readers).await?;
         let control = Db::open(config.control_db.clone(), true).await?;
-        let dess = Dess::new(config.clone())?;
-        Ok(Self::new(config, read, control, dess))
+        let device = Device::connect(config.clone())?;
+        Ok(Self::new(config, read, control, device))
     }
-    pub fn new(config: Arc<Config>, readers: Readers, control: Db, dess: Dess) -> Self {
-        let controls = Controls::new(config.clone(), control.clone(), readers.clone(), dess);
-        let automation = Automation::new(controls.clone());
+    pub fn new(config: Arc<Config>, readers: Readers, control: Db, device: Device) -> Self {
+        let controls = Controls::new(config.clone(), control.clone(), readers.clone(), device);
+        let extras = Extras::new(controls.clone());
         Self {
             config,
             readers,
             control,
             controls,
-            automation,
+            extras,
             stopping: Arc::new(AtomicBool::new(false)),
             cancel: CancellationToken::new(),
             tasks: TaskTracker::new(),
@@ -77,14 +76,13 @@ impl App {
     }
     pub fn start_automation(&self) {
         // Offline/read-only device mode never starts a task that might adjust an inverter.
-        if !self.config.live_device || !self.config.allow_device_writes {
+        if !self.config.live_device
+            || !self.config.allow_device_writes
+            || !inverter::PROFILE.automation
+        {
             return;
         }
-        let app = self.clone();
-        self.tasks.spawn(async move{loop{
-            tokio::select!{_=app.cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_secs_f64(app.config.automation_seconds))=>{}}
-            if let Err(e)=app.automation.evaluate("Scheduled automation check").await{let _=app.controls.event(crate::controls::Event{field_id:Some(crate::controls::A6),action:"automation_decision",actor:"automation",status:"failed",reason:&e.to_string(),before:Value::Null,after:Value::Null,details:Value::Null}).await;}
-        }});
+        self.extras.start(&self.tasks, self.cancel.clone());
     }
     pub fn stop(&self) {
         self.stopping.store(true, Ordering::Release);
@@ -189,7 +187,17 @@ impl App {
         };
         let response = match path {
             "/api/config" => {
-                json!({"device_sn":sn,"device_pn":self.config.pn,"db_path":self.config.telemetry_db,"control_db_path":self.config.control_db,"server_now":at})
+                let mut config = Device::config_fields(&self.config.inverter);
+                for (key, value) in [
+                    ("device_sn", json!(sn)),
+                    ("db_path", json!(self.config.telemetry_db)),
+                    ("control_db_path", json!(self.config.control_db)),
+                    ("server_now", json!(at)),
+                    ("inverter", json!(inverter::PROFILE)),
+                ] {
+                    config[key] = value;
+                }
+                config
             }
             "/api/thresholds" => self.threshold_payload().await?,
             "/api/latest" => {
@@ -288,43 +296,14 @@ impl App {
                     .controls
                     .read_all("user", "Control audit refresh")
                     .await?;
-                let important = [
-                    "work_pattern_contlow",
-                    "charging_gear_setting",
-                    "bat_charging_current",
-                    "bat_single_battery_average_charge_setting",
-                    "bat_single_battery_float_charge_setting",
-                    "bat_low_voltage_protection_value",
-                    "bat_low_voltage_recovery_value",
-                    crate::controls::A6,
-                    crate::controls::A7,
-                    "battery_type_conthigh",
-                    "lithium_battery_conthigh",
-                    "lithium_battery_contlow",
-                    "power_value",
-                ];
+                let important = inverter::PROFILE.audit_fields;
                 let controls:Vec<_>=payload["controls"].as_array().unwrap().iter().filter(|c|important.contains(&c["id"].as_str().unwrap_or(""))).map(|c|json!({"id":c["id"],"name":c["label"],"label":c["label"],"value":c["raw_value"],"unit":c["unit"],"scale":c["scale"],"pack_value":c["pack_value"],"pack_unit":if c["pack_value"].is_null(){json!("")}else{c["unit"].clone()}})).collect();
                 json!({"device_sn":sn,"controls":controls,"errors":payload["errors"],"source":"device"})
             }
-            "/api/controls/a6-test" if method == Method::POST => {
-                json!({"device_sn":sn,"result":self.controls.test_a6().await?})
-            }
-            "/api/automation" if method == Method::GET => {
-                json!({"device_sn":sn,"automation":self.automation.status().await?})
-            }
-            "/api/automation" if method == Method::POST => {
-                let state = self.automation.update(&body).await?;
-                let status = if body["enabled"] == false {
-                    self.automation.evaluate("Manual disable").await?
-                } else {
-                    self.automation.status().await?
-                };
-                json!({"device_sn":sn,"state":state,"automation":status})
-            }
-            "/api/automation/evaluate" if method == Method::POST => {
-                json!({"device_sn":sn,"automation":self.automation.evaluate("Manual evaluation").await?})
-            }
             _ => {
+                if let Some(response) = self.extras.route(method, path, &body).await? {
+                    return Ok(Some(send(StatusCode::OK, response)));
+                }
                 if method != Method::POST {
                     return Ok(None);
                 }

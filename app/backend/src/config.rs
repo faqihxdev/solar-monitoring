@@ -1,3 +1,4 @@
+use crate::inverter::{self, Inverter};
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ pub struct Cli {
     /// Required to access the repository data directory or /opt/solar-system/data.
     #[arg(long, global = true)]
     pub allow_production_data: bool,
-    /// Explicit opt-in for DESS network requests, including telemetry reads.
+    /// Explicit opt-in for inverter network requests, including telemetry reads.
     #[arg(long, global = true)]
     pub live_device: bool,
     /// Also requires --live-device. Enables guarded inverter writes.
@@ -53,30 +54,29 @@ pub struct Config {
     pub telemetry_db: PathBuf,
     pub control_db: PathBuf,
     pub sn: String,
-    pub pn: String,
-    pub devcode: String,
-    pub devaddr: String,
-    pub i18n: String,
-    pub usr: String,
-    pub pwd: String,
-    pub company_key: String,
     pub live_device: bool,
     pub allow_device_writes: bool,
-    pub http_timeout_ms: u64,
     pub readiness_age: f64,
     pub poll_seconds: f64,
-    pub details_seconds: f64,
-    pub backfill_hours: f64,
-    pub backfill_on_start: bool,
-    pub retry_ms: u64,
-    pub no_record_log_seconds: f64,
-    pub automation_seconds: f64,
+    pub inverter: inverter::Settings,
 }
 
-fn value(name: &str, default: &str) -> String {
+pub fn value(name: &str, default: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| default.to_owned())
 }
-fn positive(name: &str, default: f64) -> Result<f64> {
+/// Fails when `--live-device` is set and any of `keys` is missing or empty.
+pub fn require(live_device: bool, keys: &[&str]) -> Result<()> {
+    if live_device {
+        for key in keys {
+            ensure!(
+                !value(key, "").is_empty(),
+                "Missing required environment variable: {key}"
+            );
+        }
+    }
+    Ok(())
+}
+pub fn positive(name: &str, default: f64) -> Result<f64> {
     let n = value(name, &default.to_string())
         .parse::<f64>()
         .with_context(|| format!("Invalid {name}"))?;
@@ -158,46 +158,17 @@ impl Config {
             !cli.allow_device_writes || cli.live_device,
             "--allow-device-writes requires --live-device"
         );
-        if cli.live_device {
-            for key in [
-                "DESS_USR",
-                "DESS_PWD",
-                "DESS_COMPANY_KEY",
-                "DESS_SN",
-                "DESS_PN",
-            ] {
-                ensure!(
-                    !value(key, "").is_empty(),
-                    "Missing required environment variable: {key}"
-                );
-            }
-        }
+        let profile = inverter::PROFILE;
+        require(cli.live_device, &[profile.sn_env])?;
         Ok(Self {
             telemetry_db,
             control_db,
-            sn: value("DESS_SN", "sandbox"),
-            pn: value("DESS_PN", "sandbox"),
-            devcode: value("DESS_DEVCODE", "6513"),
-            devaddr: value("DESS_DEVADDR", "1"),
-            i18n: value("DESS_I18N", "en_US"),
-            usr: value("DESS_USR", ""),
-            pwd: value("DESS_PWD", ""),
-            company_key: value("DESS_COMPANY_KEY", ""),
+            sn: value(profile.sn_env, "sandbox"),
             live_device: cli.live_device,
             allow_device_writes: cli.allow_device_writes,
-            http_timeout_ms: positive("DESS_HTTP_TIMEOUT_MS", 45000.0)? as u64,
-            readiness_age: positive("READINESS_MAX_TELEMETRY_AGE_SECONDS", 180.0)?,
-            poll_seconds: positive("POLL_INTERVAL_SECONDS", 5.0)?,
-            details_seconds: positive("DETAILS_SYNC_INTERVAL_SECONDS", 120.0)?,
-            backfill_hours: positive("DETAILS_BACKFILL_HOURS", 168.0)?.min(168.0),
-            backfill_on_start: value("DETAILS_BACKFILL_ON_START", "0") == "1",
-            retry_ms: value("NO_RECORD_RETRY_DELAY_MS", "750")
-                .parse()
-                .context("Invalid NO_RECORD_RETRY_DELAY_MS")?,
-            no_record_log_seconds: value("NO_RECORD_LOG_INTERVAL_SECONDS", "60")
-                .parse()
-                .context("Invalid NO_RECORD_LOG_INTERVAL_SECONDS")?,
-            automation_seconds: positive("AUTOMATION_CHECK_INTERVAL_SECONDS", 300.0)?,
+            readiness_age: positive("READINESS_MAX_TELEMETRY_AGE_SECONDS", profile.readiness_age)?,
+            poll_seconds: positive("POLL_INTERVAL_SECONDS", profile.poll_seconds)?,
+            inverter: <inverter::Device as Inverter>::load_settings(cli.live_device)?,
         })
     }
 }
