@@ -51,6 +51,12 @@ async fn routes_and_error_shapes_remain_compatible() {
         assert_eq!(status, StatusCode::OK, "{url}: {body}");
         assert_eq!(body["device_sn"], "sandbox");
     }
+    let (_, config) = request(&app, "GET", "/api/config", Body::empty()).await;
+    assert_eq!(config["device_pn"], "sandbox");
+    assert_eq!(config["inverter"]["id"], "dess");
+    assert_eq!(config["inverter"]["writes"], true);
+    assert_eq!(config["inverter"]["soc_curve"][0], json!([20.0, 0.0]));
+    assert!(config["inverter"].get("sn_env").is_none());
     let (status, body) = request(&app, "GET", "/unknown", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body, json!({"detail":"Not Found"}));

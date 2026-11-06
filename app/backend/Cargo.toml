@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 
+[features]
+# Exactly one inverter backend is compiled into each build.
+default = ["dess"]
+dess = []
+
 [dependencies]
 anyhow = "1"
 axum = "0.8"

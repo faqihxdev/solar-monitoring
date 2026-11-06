@@ -27,6 +27,34 @@ for local development, comparison, and rollback.
 The Rust energy, SOC, and control rules have comparison fixtures generated from
 the TypeScript implementation. Keep them in sync when changing either runtime.
 
+## Inverter backends
+
+Each build supports one inverter, chosen with a Cargo feature. The default
+`dess` feature builds the PowMr backend, which reads and writes through
+DESSMonitor. A build with no inverter feature fails with a compile error.
+
+`src/inverter/mod.rs` defines the `Inverter` trait: environment settings,
+static profile, control catalog, setting reads and writes, vendor write rules,
+and the telemetry poll loop. `inverter::Device` names the compiled backend, and
+the rest of the crate uses only that alias. Features that exist for one
+inverter, such as PowMr charge automation and the A6 write test, live in its
+`Extras` type, which serves their API routes. A backend without them returns
+404 for those routes.
+
+`/api/config` includes the active profile under `inverter`: its id and name,
+whether setting writes and automation exist, the nominal battery voltage, and
+the voltage-to-SOC curve.
+
+| Path | Contents |
+| --- | --- |
+| `src/inverter/dess/client.rs` | Signed DESSMonitor requests and session refresh |
+| `src/inverter/dess/parse.rs` | Live data and daily voltage report parsing |
+| `src/inverter/dess/poller.rs` | 5-second poll, voltage sync, and session persistence |
+| `src/inverter/dess/automation.rs` | A6/A7 band automation toward a target charge |
+| `src/inverter/dess/*_catalog.json` | Control fields and chart reference lines, generated from TypeScript |
+
+The TypeScript backend supports DESSMonitor only.
+
 ## Local setup
 
 Requires Rust 1.85 or newer and a native C compiler for bundled SQLite. The

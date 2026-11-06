@@ -1,6 +1,6 @@
 use crate::{config::Config, now, number, text};
 use anyhow::{Context, Result, bail, ensure};
-use serde_json::{Value, json};
+use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
@@ -70,7 +70,7 @@ impl Dess {
     pub fn with_endpoint(config: Arc<Config>, endpoint: String) -> Result<Self> {
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_millis(config.http_timeout_ms))
+            .timeout(Duration::from_millis(config.inverter.http_timeout_ms))
             .pool_idle_timeout(Duration::from_secs(90))
             .pool_max_idle_per_host(4)
             .redirect(reqwest::redirect::Policy::none())
@@ -117,14 +117,14 @@ impl Dess {
         let salt = ((now() * 1000.0) as u64).to_string();
         let params = vec![
             pair("action", "authSource"),
-            pair("usr", &self.config.usr),
+            pair("usr", &self.config.inverter.usr),
             pair("source", "1"),
-            pair("company-key", &self.config.company_key),
+            pair("company-key", &self.config.inverter.company_key),
         ];
         let sign = sha1(&format!(
             "{}{}&{}",
             salt,
-            sha1(&self.config.pwd),
+            sha1(&self.config.inverter.pwd),
             param_string(&params, true)
         ));
         let mut signed = vec![pair("sign", sign), pair("salt", salt)];
@@ -169,14 +169,14 @@ impl Dess {
         let mut params = vec![
             pair("action", action),
             pair("source", "1"),
-            pair("devcode", &self.config.devcode),
-            pair("pn", &self.config.pn),
-            pair("devaddr", &self.config.devaddr),
+            pair("devcode", &self.config.inverter.devcode),
+            pair("pn", &self.config.inverter.pn),
+            pair("devaddr", &self.config.inverter.devaddr),
             pair("sn", &self.config.sn),
         ];
         params.extend(extra.iter().map(|(k, v)| pair(k, v)));
         if i18n {
-            params.push(pair("i18n", &self.config.i18n));
+            params.push(pair("i18n", &self.config.inverter.i18n));
         }
         for attempt in 0..2 {
             let session = self.session.lock().await.clone();
@@ -238,46 +238,4 @@ fn check(v: &Value) -> Result<()> {
         .into());
     }
     Ok(())
-}
-
-pub fn details(dat: &Value) -> Vec<Value> {
-    let Some(titles) = dat["title"].as_array() else {
-        return vec![];
-    };
-    let Some(rows) = dat["row"].as_array() else {
-        return vec![];
-    };
-    let index = |title: &str| {
-        titles
-            .iter()
-            .position(|t| text(&t["title"]).is_some_and(|s| s.eq_ignore_ascii_case(title)))
-    };
-    let ts = index("timestamp");
-    let battery = index("battery voltage");
-    let mppt = index("mppt battery voltage");
-    let state = index("working state");
-    let soc = index("bms lithium battery capacity soc");
-    let mut samples = Vec::new();
-    for row in rows {
-        let parsed;
-        let fields = if let Some(a) = row["field"].as_array() {
-            a
-        } else if let Some(s) = row["field"].as_str() {
-            parsed = serde_json::from_str::<Vec<Value>>(s);
-            let Ok(ref a) = parsed else { continue };
-            a
-        } else {
-            continue;
-        };
-        let get = |i: Option<usize>| i.and_then(|i| fields.get(i)).unwrap_or(&Value::Null);
-        let Some(raw) = text(get(ts)) else { continue };
-        let Ok(at) = chrono::NaiveDateTime::parse_from_str(&raw, "%Y-%m-%d %H:%M:%S%.f") else {
-            continue;
-        };
-        let Some(voltage) = number(get(battery)) else {
-            continue;
-        };
-        samples.push(json!({"sampled_at":at.and_utc().timestamp_millis()as f64/1000.0-25200.0,"sampled_at_raw":raw,"battery_voltage":voltage,"mppt_battery_voltage":number(get(mppt)),"working_state":text(get(state)),"battery_soc":number(get(soc))}));
-    }
-    samples
 }

@@ -1,13 +1,12 @@
+#![cfg(feature = "dess")]
 mod common;
 use axum::{Json, Router, extract::State, http::Uri};
 use common::*;
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 use solar_backend::{
-    controls::{A6, A7},
     db::sql,
-    dess::Dess,
-    poller,
+    inverter::dess::{A6, A7, Dess, poller},
 };
 use std::{
     collections::HashMap,
@@ -265,7 +264,7 @@ async fn voltage_sync_uses_device_wall_time_and_updates_atomically() {
     let cancel = CancellationToken::new();
     assert_eq!(
         poller::sync_date(
-            &app.controls.dess,
+            &app.controls.device,
             &writable,
             "sandbox",
             "2026-09-30",
@@ -277,7 +276,7 @@ async fn voltage_sync_uses_device_wall_time_and_updates_atomically() {
     );
     assert_eq!(
         poller::sync_date(
-            &app.controls.dess,
+            &app.controls.device,
             &writable,
             "sandbox",
             "2026-09-30",
@@ -300,7 +299,7 @@ async fn voltage_sync_uses_device_wall_time_and_updates_atomically() {
     cancel.cancel();
     assert_eq!(
         poller::sync_date(
-            &app.controls.dess,
+            &app.controls.device,
             &writable,
             "sandbox",
             "2026-09-30",
@@ -322,7 +321,7 @@ async fn snapshot_cancel_stops_before_the_next_device_request() {
     let cancel = CancellationToken::new();
     cancel.cancel();
     assert!(
-        poller::snapshot(&app.controls.dess, &cancel)
+        poller::snapshot(&app.controls.device, &cancel)
             .await
             .unwrap()
             .is_none()
@@ -357,11 +356,17 @@ async fn automation_transitions_and_restores_the_entire_band() {
         })
         .await
         .unwrap();
-    app.automation
+    app.extras
+        .automation
         .update(&json!({"enabled":true}))
         .await
         .unwrap();
-    let result = app.automation.evaluate_at("fixture", at).await.unwrap();
+    let result = app
+        .extras
+        .automation
+        .evaluate_at("fixture", at)
+        .await
+        .unwrap();
     assert_eq!(result["state"]["active_override"], 1, "{result}");
     assert_eq!(
         state
@@ -374,6 +379,7 @@ async fn automation_transitions_and_restores_the_entire_band() {
         vec![A6, A7]
     );
     let repeat = app
+        .extras
         .automation
         .evaluate_at("fixture repeat", at)
         .await
@@ -387,11 +393,13 @@ async fn automation_transitions_and_restores_the_entire_band() {
         })
         .await
         .unwrap();
-    app.automation
+    app.extras
+        .automation
         .update(&json!({"enabled":false}))
         .await
         .unwrap();
     let result = app
+        .extras
         .automation
         .evaluate_at("fixture disable", at)
         .await
