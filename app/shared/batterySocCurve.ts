@@ -26,37 +26,46 @@ export const LIFEPO4_24V_SOC_CURVE: readonly BatterySocAnchor[] = [
   { voltage: 29.2, soc: 100.0 },
 ];
 
-export function socForPackVoltage(voltage: number | null | undefined): number | null {
-  if (voltage == null || !Number.isFinite(voltage)) return null;
+// Callers pass the active inverter's curve; an empty curve maps everything to null.
+export function socForPackVoltage(
+  voltage: number | null | undefined,
+  curve: readonly BatterySocAnchor[] = LIFEPO4_24V_SOC_CURVE,
+): number | null {
+  if (voltage == null || !Number.isFinite(voltage) || curve.length < 2)
+    return null;
 
-  const first = LIFEPO4_24V_SOC_CURVE[0];
-  const last = LIFEPO4_24V_SOC_CURVE[LIFEPO4_24V_SOC_CURVE.length - 1];
+  const first = curve[0];
+  const last = curve[curve.length - 1];
   if (voltage <= first.voltage) return first.soc;
   if (voltage >= last.voltage) return last.soc;
 
-  for (let i = 1; i < LIFEPO4_24V_SOC_CURVE.length; i += 1) {
-    const upper = LIFEPO4_24V_SOC_CURVE[i];
+  for (let i = 1; i < curve.length; i += 1) {
+    const upper = curve[i];
     if (voltage > upper.voltage) continue;
-    const lower = LIFEPO4_24V_SOC_CURVE[i - 1];
-    const fraction = (voltage - lower.voltage) / (upper.voltage - lower.voltage);
+    const lower = curve[i - 1];
+    const fraction =
+      (voltage - lower.voltage) / (upper.voltage - lower.voltage);
     return lower.soc + fraction * (upper.soc - lower.soc);
   }
 
   return last.soc;
 }
 
-export function packVoltageForSoc(soc: number | null | undefined): number | null {
-  if (soc == null || !Number.isFinite(soc)) return null;
+export function packVoltageForSoc(
+  soc: number | null | undefined,
+  curve: readonly BatterySocAnchor[] = LIFEPO4_24V_SOC_CURVE,
+): number | null {
+  if (soc == null || !Number.isFinite(soc) || curve.length < 2) return null;
 
-  const first = LIFEPO4_24V_SOC_CURVE[0];
-  const last = LIFEPO4_24V_SOC_CURVE[LIFEPO4_24V_SOC_CURVE.length - 1];
+  const first = curve[0];
+  const last = curve[curve.length - 1];
   if (soc <= first.soc) return first.voltage;
   if (soc >= last.soc) return last.voltage;
 
-  for (let i = 1; i < LIFEPO4_24V_SOC_CURVE.length; i += 1) {
-    const upper = LIFEPO4_24V_SOC_CURVE[i];
+  for (let i = 1; i < curve.length; i += 1) {
+    const upper = curve[i];
     if (soc > upper.soc) continue;
-    const lower = LIFEPO4_24V_SOC_CURVE[i - 1];
+    const lower = curve[i - 1];
     const fraction = (soc - lower.soc) / (upper.soc - lower.soc);
     return lower.voltage + fraction * (upper.voltage - lower.voltage);
   }

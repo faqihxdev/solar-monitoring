@@ -3,6 +3,7 @@ import { CircleAlert } from "lucide-react";
 import Header from "./components/Header";
 import EnergyFlow from "./components/EnergyFlow";
 import type { ControlEntry, ThresholdEntry } from "./api";
+import { InverterContext, inverterProfile } from "./inverter";
 import {
   useConfig,
   useSummary,
@@ -93,6 +94,7 @@ export default function App() {
   const history = useHistory(hours);
   const voltage = useVoltage(hours);
 
+  const inverter = useMemo(() => inverterProfile(config.data), [config.data]);
   const latest = summary.data?.latest ?? null;
   const deviceSn = config.data?.device_sn ?? summary.data?.device_sn ?? "";
 
@@ -126,82 +128,86 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell" id="overview">
-      <Header
-        online={online}
-        fresh={fresh}
-        loading={firstLoad}
-        polledAtMs={polledAtMs}
-        deviceSn={deviceSn}
-        notice={
-          !firstLoad && (!online || !latest || !fresh)
-            ? {
-                text: `${
-                  !online
-                    ? "The monitoring service is unavailable."
-                    : !latest
-                      ? "Waiting for the first device reading."
-                      : "Telemetry is delayed."
-                }${latest ? " Showing last known flow." : ""}`,
-                retrying: summary.isFetching,
-                onRetry: () => void summary.refetch(),
-              }
-            : null
-        }
-      />
-      <main id="main-content" className="main-content" tabIndex={-1}>
-        <h1 className="sr-only">Energy overview</h1>
-        <EnergyFlow
-          latest={latest}
-          voltageThresholds={voltageThresholds}
-          history={history.data?.points ?? []}
-          loadMaxKw={loadMaxKw}
+    <InverterContext.Provider value={inverter}>
+      <div className="app-shell" id="overview">
+        <Header
+          online={online}
           fresh={fresh}
-        />
-        <Suspense
-          fallback={
-            <div className="page-loading" role="status">
-              Loading trends and controls…
-            </div>
+          loading={firstLoad}
+          polledAtMs={polledAtMs}
+          deviceSn={deviceSn}
+          notice={
+            !firstLoad && (!online || !latest || !fresh)
+              ? {
+                  text: `${
+                    !online
+                      ? "The monitoring service is unavailable."
+                      : !latest
+                        ? "Waiting for the first device reading."
+                        : "Telemetry is delayed."
+                  }${latest ? " Showing last known flow." : ""}`,
+                  retrying: summary.isFetching,
+                  onRetry: () => void summary.refetch(),
+                }
+              : null
           }
-        >
-          <div className="dashboard-section" id="history">
-            {(history.isError || voltage.isError) && (
-              <div className="notice" role="status">
-                <CircleAlert size={16} />
-                <span>Some historical readings could not be loaded.</span>
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    void history.refetch();
-                    void voltage.refetch();
-                  }}
-                >
-                  Retry history
-                </button>
+        />
+        <main id="main-content" className="main-content" tabIndex={-1}>
+          <h1 className="sr-only">Energy overview</h1>
+          <EnergyFlow
+            latest={latest}
+            voltageThresholds={voltageThresholds}
+            history={history.data?.points ?? []}
+            loadMaxKw={loadMaxKw}
+            fresh={fresh}
+          />
+          <Suspense
+            fallback={
+              <div className="page-loading" role="status">
+                Loading trends and controls…
               </div>
-            )}
-            <Charts
-              range={range}
-              setRange={setRange}
-              chartDate={date}
-              setChartDate={setDate}
-              history={history.data}
-              voltage={voltage.data}
-              voltageThresholds={voltageThresholds}
-              latest={latest}
-              loading={history.isPending || voltage.isPending}
-              updating={history.isPlaceholderData || voltage.isPlaceholderData}
-            />
-          </div>
-          <DailyEnergy date={date} setDate={selectDate} />
-          <div className="dashboard-section" id="controls">
-            <ControlCenter voltageThresholds={voltageThresholds} />
-          </div>
-          <InitialSectionScroll />
-        </Suspense>
-      </main>
-    </div>
+            }
+          >
+            <div className="dashboard-section" id="history">
+              {(history.isError || voltage.isError) && (
+                <div className="notice" role="status">
+                  <CircleAlert size={16} />
+                  <span>Some historical readings could not be loaded.</span>
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      void history.refetch();
+                      void voltage.refetch();
+                    }}
+                  >
+                    Retry history
+                  </button>
+                </div>
+              )}
+              <Charts
+                range={range}
+                setRange={setRange}
+                chartDate={date}
+                setChartDate={setDate}
+                history={history.data}
+                voltage={voltage.data}
+                voltageThresholds={voltageThresholds}
+                latest={latest}
+                loading={history.isPending || voltage.isPending}
+                updating={
+                  history.isPlaceholderData || voltage.isPlaceholderData
+                }
+              />
+            </div>
+            <DailyEnergy date={date} setDate={selectDate} />
+            <div className="dashboard-section" id="controls">
+              <ControlCenter voltageThresholds={voltageThresholds} />
+            </div>
+            <InitialSectionScroll />
+          </Suspense>
+        </main>
+      </div>
+    </InverterContext.Provider>
   );
 }
 

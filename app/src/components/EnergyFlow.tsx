@@ -20,6 +20,7 @@ import {
   meanVoltage,
   practicalBattery,
 } from "../batteryModel";
+import { useInverter } from "../inverter";
 import { deriveFlows } from "../energy";
 import {
   DEVICE_NAMES,
@@ -136,13 +137,15 @@ export default function EnergyFlow({
       ),
     [history, latest],
   );
+  const inverter = useInverter();
   const practical = practicalBattery(
     latest && mean != null ? { ...latest, battery_voltage: mean } : latest,
     voltageThresholds,
+    inverter,
   );
   const eta = useMemo(
-    () => estimatePracticalEta(history, latest, voltageThresholds),
-    [history, latest, voltageThresholds],
+    () => estimatePracticalEta(history, latest, voltageThresholds, inverter),
+    [history, latest, voltageThresholds, inverter],
   );
   const thresholds = batteryThresholds(voltageThresholds);
   const gridVoltage = latest?.grid_voltage;
