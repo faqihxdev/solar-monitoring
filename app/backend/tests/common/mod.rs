@@ -4,7 +4,7 @@ use solar_backend::{
     api::App,
     config::Config,
     db::{Db, Readers, Store},
-    inverter::dess::{Dess, Settings},
+    inverter::{Device, Settings},
 };
 use std::{
     path::{Path, PathBuf},
@@ -24,23 +24,47 @@ pub fn config(telemetry: PathBuf, control: PathBuf) -> Config {
         allow_device_writes: false,
         readiness_age: 180.0,
         poll_seconds: 0.05,
-        inverter: Settings {
-            pn: "sandbox".into(),
-            devcode: "6513".into(),
-            devaddr: "1".into(),
-            i18n: "en_US".into(),
-            usr: "test-user".into(),
-            pwd: "test-password".into(),
-            company_key: "test-company".into(),
-            http_timeout_ms: 2000,
-            details_seconds: 120.0,
-            backfill_hours: 24.0,
-            backfill_on_start: false,
-            retry_ms: 1,
-            no_record_log_seconds: 60.0,
-            automation_seconds: 300.0,
-        },
+        inverter: settings(),
     }
+}
+#[cfg(feature = "dess")]
+fn settings() -> Settings {
+    Settings {
+        pn: "sandbox".into(),
+        devcode: "6513".into(),
+        devaddr: "1".into(),
+        i18n: "en_US".into(),
+        usr: "test-user".into(),
+        pwd: "test-password".into(),
+        company_key: "test-company".into(),
+        http_timeout_ms: 2000,
+        details_seconds: 120.0,
+        backfill_hours: 24.0,
+        backfill_on_start: false,
+        retry_ms: 1,
+        no_record_log_seconds: 60.0,
+        automation_seconds: 300.0,
+    }
+}
+#[cfg(feature = "growatt")]
+fn settings() -> Settings {
+    Settings {
+        token: "test-token".into(),
+        api_url: "http://127.0.0.1:9".into(),
+        http_timeout_ms: 2000,
+        backfill_days: 3,
+        stale_seconds: 900.0,
+    }
+}
+#[cfg(feature = "dess")]
+fn device(config: Arc<Config>, endpoint: String) -> Device {
+    Device::with_endpoint(config, endpoint).unwrap()
+}
+#[cfg(feature = "growatt")]
+fn device(mut config: Config, endpoint: String) -> (Arc<Config>, Device) {
+    config.inverter.api_url = endpoint;
+    let config = Arc::new(config);
+    (config.clone(), Device::new(config).unwrap())
 }
 pub async fn app(directory: &Path) -> App {
     let telemetry = directory.join("telemetry.db");
@@ -59,11 +83,16 @@ pub async fn live_app(directory: &Path, endpoint: String) -> App {
     let mut config = config(telemetry.clone(), control.clone());
     config.live_device = true;
     config.allow_device_writes = true;
-    let config = Arc::new(config);
+    #[cfg(feature = "dess")]
+    let (config, device) = {
+        let config = Arc::new(config);
+        (config.clone(), device(config, endpoint))
+    };
+    #[cfg(feature = "growatt")]
+    let (config, device) = device(config, endpoint);
     let readers = Readers::open(&telemetry, 2).await.unwrap();
     let db = Db::open(control, true).await.unwrap();
-    let dess = Dess::with_endpoint(config.clone(), endpoint).unwrap();
-    App::new(config, readers, db, dess)
+    App::new(config, readers, db, device)
 }
 pub fn compare(actual: &Value, expected: &Value, path: &str) {
     match (actual, expected) {

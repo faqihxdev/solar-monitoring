@@ -29,9 +29,15 @@ the TypeScript implementation. Keep them in sync when changing either runtime.
 
 ## Inverter backends
 
-Each build supports one inverter, chosen with a Cargo feature. The default
-`dess` feature builds the PowMr backend, which reads and writes through
-DESSMonitor. A build with no inverter feature fails with a compile error.
+Each build supports one inverter, chosen with a Cargo feature. A build with no
+inverter feature, or with both, fails with a compile error.
+
+| Feature | Inverter | Settings | Telemetry |
+| --- | --- | --- | --- |
+| `dess` (default) | PowMr through DESSMonitor | Read and write, with charge automation | Polled every 5 s |
+| `growatt` | Growatt SPF through the Growatt OpenAPI | Read-only | Polled every 60 s; Growatt updates every 5 min |
+
+Build or test the Growatt variant with `--no-default-features --features growatt`.
 
 `src/inverter/mod.rs` defines the `Inverter` trait: environment settings,
 static profile, control catalog, setting reads and writes, vendor write rules,
@@ -52,8 +58,39 @@ the voltage-to-SOC curve.
 | `src/inverter/dess/poller.rs` | 5-second poll, voltage sync, and session persistence |
 | `src/inverter/dess/automation.rs` | A6/A7 band automation toward a target charge |
 | `src/inverter/dess/*_catalog.json` | Control fields and chart reference lines, generated from TypeScript |
+| `src/inverter/growatt/client.rs` | Token-authenticated Growatt OpenAPI requests |
+| `src/inverter/growatt/parse.rs` | Growatt data rows mapped to the stored telemetry columns |
+| `src/inverter/growatt/poller.rs` | Live polling and history backfill |
+| `src/inverter/growatt/*_catalog.json` | Read-only settings and chart reference lines |
 
 The TypeScript backend supports DESSMonitor only.
+
+### Growatt
+
+The Growatt build needs `GROWATT_TOKEN` (from ShinePhone: Me, your account,
+API Token) and `GROWATT_SN`, the inverter serial number. `.env.example` lists
+the optional settings.
+
+- Live readings come from the v1 `storage_last_data` endpoint, which accepts a
+  request every 10 seconds. The v4 latest-data endpoint rejects repeat requests
+  within seconds with `FREQUENTLY_ACCESS`.
+- A background task backfills from v4 `queryHistoricalData`, one request per
+  day, at startup and every 6 hours. It covers the last 89 days, the most
+  Growatt serves, and skips past days that already hold 270 of their 288
+  samples. When Growatt rate-limits it, it waits 5 minutes and retries.
+- Live and history rows for the same sample are stored once. The parser rounds
+  away v1's float32 noise and labels the state from the status code, so both
+  sources hash the same. A live sample older than the newest stored one, which
+  happens because v1 can lag a sample behind v4, only refreshes the heartbeat.
+- A live sample older than `GROWATT_STALE_SECONDS` (900) is not stored, so
+  readiness turns stale when the datalogger stops reporting.
+- The inverter reports 0 V and 0% when it isn't reading the battery, for example
+  during grid bypass charging at night. Those readings are stored as unknown.
+- Growatt reports charging as negative battery power. Readings under 50 W
+  either way count as idle standby draw.
+- The state of charge uses the 51.2 V (16S) column of PowMr's
+  [LiFePO4 voltage chart](https://powmr.com/blogs/news/lifepo4-voltage-chart-and-soc),
+  for a pack of four 12.8 V 100 Ah batteries in series.
 
 ## Local setup
 

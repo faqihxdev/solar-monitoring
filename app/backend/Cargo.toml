@@ -8,6 +8,7 @@ rust-version = "1.85"
 # Exactly one inverter backend is compiled into each build.
 default = ["dess"]
 dess = []
+growatt = []
 
 [dependencies]
 anyhow = "1"

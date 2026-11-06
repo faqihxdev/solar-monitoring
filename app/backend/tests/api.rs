@@ -30,6 +30,7 @@ async fn request(
         .unwrap();
     (status, serde_json::from_slice(&bytes).unwrap())
 }
+#[cfg(feature = "dess")]
 #[tokio::test]
 async fn routes_and_error_shapes_remain_compatible() {
     let temp = tempfile::tempdir().unwrap();
