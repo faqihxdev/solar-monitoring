@@ -47,11 +47,13 @@ export function useControlLog() {
   });
 }
 
-export function useAutomation() {
+// Only inverters with charge automation serve /api/automation.
+export function useAutomation(enabled: boolean) {
   return useQuery({
     queryKey: ["automation"],
     queryFn: api.automation,
     refetchInterval: 30_000,
+    enabled,
   });
 }
 

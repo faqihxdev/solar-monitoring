@@ -49,12 +49,24 @@ export interface SummaryResponse {
   server_now?: number;
 }
 
+export interface InverterConfig {
+  id: string;
+  name: string;
+  writes: boolean;
+  automation: boolean;
+  battery_nominal_voltage: number;
+  // [pack voltage, state of charge %] anchors, ascending.
+  soc_curve: [number, number][];
+}
+
 export interface ConfigResponse {
   device_sn: string;
-  device_pn: string;
+  device_pn?: string;
   db_path: string;
   control_db_path: string;
   server_now: number;
+  // Absent from servers that predate inverter profiles; those are PowMr builds.
+  inverter?: InverterConfig;
 }
 
 export type HistoryPoint = Reading;

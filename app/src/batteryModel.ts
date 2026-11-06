@@ -1,11 +1,11 @@
 import type { Reading, ThresholdEntry } from "./api";
 import { isOnMains } from "./format";
 import {
-  LIFEPO4_24V_SOC_CURVE,
   packVoltageForSoc,
   socForPackVoltage,
   type BatterySocAnchor,
 } from "../shared/batterySocCurve";
+import type { InverterProfile } from "./inverter";
 
 const A6_ID = "a6_return_pln";
 const A7_ID = "a7_switch_pln";
@@ -33,7 +33,7 @@ export interface PracticalBattery {
 
 export interface PracticalEta {
   label: string;
-  targetId: "A6" | "A7";
+  targetId: string;
   targetVoltage: number;
   targetSoc: number;
   slopePctPerHour: number;
@@ -49,8 +49,10 @@ function thresholdValue(thresholds: ThresholdEntry[], id: string): number | null
 
 export type PracticalSocAnchor = BatterySocAnchor;
 
-export function practicalSocAnchors(): PracticalSocAnchor[] {
-  return LIFEPO4_24V_SOC_CURVE.map((anchor) => ({ ...anchor }));
+export function practicalSocAnchors(
+  curve: readonly BatterySocAnchor[],
+): PracticalSocAnchor[] {
+  return curve.map((anchor) => ({ ...anchor }));
 }
 
 export function batteryThresholds(thresholds: ThresholdEntry[]): BatteryThresholds {
@@ -80,8 +82,11 @@ export function protectionReservePct(
   return clampPct(((voltage - a4) / (a7 - a4)) * 100);
 }
 
-export function practicalSocPct(voltage: number | null | undefined): number | null {
-  return socForPackVoltage(voltage);
+export function practicalSocPct(
+  voltage: number | null | undefined,
+  curve: readonly BatterySocAnchor[],
+): number | null {
+  return socForPackVoltage(voltage, curve);
 }
 
 // Trailing window used to smooth the *displayed* practical SOC. Because the
@@ -124,17 +129,21 @@ export function meanVoltage(
   return sum / count;
 }
 
-export function voltageForPracticalSoc(soc: number | null | undefined): number | null {
-  return packVoltageForSoc(soc);
+export function voltageForPracticalSoc(
+  soc: number | null | undefined,
+  curve: readonly BatterySocAnchor[],
+): number | null {
+  return packVoltageForSoc(soc, curve);
 }
 
 export function practicalBattery(
   reading: Pick<Reading, "battery_voltage" | "battery_soc" | "working_state"> | null | undefined,
-  thresholds: ThresholdEntry[]
+  thresholds: ThresholdEntry[],
+  profile: InverterProfile
 ): PracticalBattery {
   const voltage = reading?.battery_voltage ?? null;
   const reportedSoc = reading?.battery_soc ?? null;
-  const practicalSoc = practicalSocPct(voltage);
+  const practicalSoc = practicalSocPct(voltage, profile.socCurve);
   const a7BufferPct = practicalBufferPct(voltage, thresholds);
   const a4ReservePct = protectionReservePct(voltage, thresholds);
   const { a6, a7, a4 } = batteryThresholds(thresholds);
@@ -142,7 +151,7 @@ export function practicalBattery(
   let stateLabel = "Voltage unknown";
   if (voltage != null) {
     if (a4 != null && voltage <= a4) stateLabel = "At protection floor";
-    else if (a7 != null && voltage <= a7) stateLabel = "At A7 mains point";
+    else if (a7 != null && voltage <= a7) stateLabel = `At ${profile.switchPoint}`;
     else if (a6 != null && voltage < a6) stateLabel = "Below return target";
     else stateLabel = "Above return target";
   }
@@ -158,13 +167,18 @@ export function practicalBattery(
     practicalSocLabel:
       practicalSoc == null ? "Practical SOC --" : `Practical ${Math.round(practicalSoc)}%`,
     bufferLabel:
-      a7BufferPct == null ? "A7 buffer --" : `A7 buffer ${Math.round(a7BufferPct)}%`,
+      a7BufferPct == null
+        ? `${profile.bufferName} --`
+        : `${profile.bufferName} ${Math.round(a7BufferPct)}%`,
   };
 }
 
-function fitPracticalSocSlope(points: Reading[]): number | null {
+function fitPracticalSocSlope(
+  points: Reading[],
+  curve: readonly BatterySocAnchor[]
+): number | null {
   const rows = points
-    .map((p) => ({ polled_at: p.polled_at, practical_soc: practicalSocPct(p.battery_voltage) }))
+    .map((p) => ({ polled_at: p.polled_at, practical_soc: practicalSocPct(p.battery_voltage, curve) }))
     .filter((p): p is { polled_at: number; practical_soc: number } => p.practical_soc != null);
   if (rows.length < 4) return null;
   const t0 = rows[0].polled_at;
@@ -197,7 +211,8 @@ function formatDuration(hours: number): string {
 export function estimatePracticalEta(
   history: Reading[],
   latest: Reading | null | undefined,
-  thresholds: ThresholdEntry[]
+  thresholds: ThresholdEntry[],
+  profile: InverterProfile
 ): PracticalEta | null {
   // Use the same trailing mean voltage as the gauge so the ETA's starting
   // SOC doesn't jump with the 0.2V quantization steps.
@@ -213,16 +228,16 @@ export function estimatePracticalEta(
   const voltage = smoothed ?? latest?.battery_voltage ?? null;
   const { a6, a7 } = batteryThresholds(thresholds);
   if (voltage == null || a6 == null || a7 == null || history.length < 4) return null;
-  const practicalSoc = practicalSocPct(voltage);
+  const practicalSoc = practicalSocPct(voltage, profile.socCurve);
   if (practicalSoc == null) return null;
 
   const onMains = isOnMains(latest?.working_state);
   const discharging = latest?.battery_status === 1 && !onMains;
   const recovering = (latest?.battery_status === -1 || onMains) && voltage < a6;
   const target = discharging ? a7 : recovering ? a6 : null;
-  const targetId = discharging ? "A7" : recovering ? "A6" : null;
+  const targetId = discharging ? profile.switchName : recovering ? profile.returnName : null;
   if (target == null || targetId == null) return null;
-  const targetSoc = practicalSocPct(target);
+  const targetSoc = practicalSocPct(target, profile.socCurve);
   if (targetSoc == null) return null;
 
   const now = history[history.length - 1]?.polled_at ?? latest?.polled_at;
@@ -241,7 +256,7 @@ export function estimatePracticalEta(
       if (recovering) return p.battery_status === -1 || isOnMains(p.working_state);
       return false;
     });
-    const slope = fitPracticalSocSlope(pts);
+    const slope = fitPracticalSocSlope(pts, profile.socCurve);
     if (slope == null || Math.abs(slope) < window.minAbsSlope) continue;
     if (discharging && slope >= 0) continue;
     if (recovering && slope <= 0) continue;
