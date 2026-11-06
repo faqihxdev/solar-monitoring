@@ -23,6 +23,7 @@ import {
   voltageForPracticalSoc,
   PRACTICAL_SOC_SMOOTHING_MINUTES,
 } from "../batteryModel";
+import { useInverter } from "../inverter";
 import { C, FONT } from "../theme";
 import {
   clockTime,
@@ -80,16 +81,6 @@ const CHART_SYNC_ID = "solar-charts-time-sync";
 
 const SOC_Y_DOMAIN: [number, number] = [0, 100];
 const GRID_LOW_VOLTAGE_V = 50;
-
-const THRESH_SHORT: Record<string, string> = {
-  soc_to_mains: "SOC GRID",
-  soc_resume_inverter: "SOC INV",
-  a3_float_charge: "A3 FLT",
-  a7_switch_pln: "A7 GRID",
-  a6_return_pln: "A6 INV",
-  a5_low_recovery: "A5 REC",
-  a4_low_protection: "A4 CUT",
-};
 
 function limitLabel(text: string, color: string) {
   return (props: {
@@ -207,6 +198,7 @@ const MetricChartBody = memo(function MetricChartBody({
   danger,
   wide,
 }: MetricChartBodyProps) {
+  const { thresholdShort } = useInverter();
   return (
     <ResponsiveContainer width="100%" height={wide ? 200 : 196}>
       <AreaChart
@@ -245,7 +237,7 @@ const MetricChartBody = memo(function MetricChartBody({
           />
         )}
         {thresholds?.map((t) => {
-          const short = THRESH_SHORT[t.id] ?? "";
+          const short = thresholdShort[t.id] ?? "";
           const isVoltage = unit === "V";
           const primaryVal = isVoltage
             ? `${num(t.value, 1)}V`
@@ -502,6 +494,7 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
   ];
   thresholds?: ThresholdEntry[];
 }) {
+  const { thresholdShort } = useInverter();
   return (
     <ResponsiveContainer width="100%" height={196}>
       <AreaChart
@@ -542,7 +535,7 @@ const PackVoltageChartBody = memo(function PackVoltageChartBody({
           connectNulls
         />
         {thresholds?.map((t) => {
-          const short = THRESH_SHORT[t.id] ?? "";
+          const short = thresholdShort[t.id] ?? "";
           const primaryVal = `${num(t.value, 1)}V`;
           const singleVal =
             t.scale > 1 ? `${num(t.value / t.scale, 1)}V` : null;
@@ -1070,6 +1063,7 @@ export default function Charts({
 }: Props) {
   const today = todayJkt();
   const isChartToday = chartDate === today;
+  const { socCurve } = useInverter();
 
   // All points returned by the API (may span more hours than the visible window for
   // historical dates, since we over-fetch to ensure coverage).
@@ -1266,11 +1260,11 @@ export default function Charts({
       const smoothedV = count ? sum / count : r.v;
       return {
         ...r,
-        practicalSoc: practicalSocPct(smoothedV),
-        curveGuideV: voltageForPracticalSoc(windowSoc),
+        practicalSoc: practicalSocPct(smoothedV, socCurve),
+        curveGuideV: voltageForPracticalSoc(windowSoc, socCurve),
       };
     });
-  }, [voltRows]);
+  }, [voltRows, socCurve]);
 
   const voltDomain = useMemo<
     | [number | ((v: number) => number), number | ((v: number) => number)]
@@ -1303,6 +1297,7 @@ export default function Charts({
   );
   const latestPracticalSoc = practicalSocPct(
     smoothedLatestVoltage ?? latest?.battery_voltage,
+    socCurve,
   );
   const lastBatteryRow = batteryRows[batteryRows.length - 1];
   const displayedReading = isChartToday

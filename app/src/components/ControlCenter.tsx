@@ -26,6 +26,7 @@ import {
   useControlMutations,
   useControls,
 } from "../hooks";
+import { useInverter } from "../inverter";
 import { fullTime, num, relativeAge, watts } from "../format";
 
 type FeedbackTone = "ok" | "warn" | "bad";
@@ -198,9 +199,10 @@ interface ControlCenterProps {
 export default function ControlCenter({
   voltageThresholds = [],
 }: ControlCenterProps) {
+  const inverter = useInverter();
   const controls = useControls();
   const log = useControlLog();
-  const automation = useAutomation();
+  const automation = useAutomation(inverter.automation);
   const mutations = useControlMutations();
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -523,7 +525,13 @@ export default function ControlCenter({
 
   return (
     <section className="controls-section" aria-label="System control center">
-      <SectionHeading title="Automation & device settings" />
+      <SectionHeading
+        title={
+          inverter.automation
+            ? "Automation & device settings"
+            : "Device settings"
+        }
+      />
 
       {feedback && (
         <div
@@ -556,7 +564,7 @@ export default function ControlCenter({
         </div>
       )}
 
-      {automation.isError && (
+      {inverter.automation && automation.isError && (
         <div className="notice" role="status">
           <AlertTriangle size={16} />
           <span>
@@ -573,8 +581,9 @@ export default function ControlCenter({
                 <RefreshCw size={14} strokeWidth={1.8} /> Device controls
               </div>
               <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
-                Values show read freshness. Writes are read-before-write and
-                verified after send.
+                {inverter.writes
+                  ? "Values show read freshness. Writes are read-before-write and verified after send."
+                  : `Values show read freshness. ${inverter.name} settings are read-only here; change them on the inverter or in its app.`}
               </p>
             </div>
             <button
@@ -618,6 +627,7 @@ export default function ControlCenter({
                 writingId={writingId}
                 readingId={readingId}
                 controlLabelColors={controlLabelColors}
+                canWrite={inverter.writes}
               />
               <ControlGroup
                 title="Inverter settings"
@@ -630,222 +640,232 @@ export default function ControlCenter({
                 writingId={writingId}
                 readingId={readingId}
                 controlLabelColors={controlLabelColors}
+                canWrite={inverter.writes}
               />
             </>
           )}
         </div>
 
-        <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
-            <div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-dim">
-                <Target size={14} strokeWidth={1.8} /> Battery charge target
+        {inverter.automation && (
+          <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-dim">
+                  <Target size={14} strokeWidth={1.8} /> Battery charge target
+                </div>
+                <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
+                  Uses practical SOC mapped to pack voltage. Disabled mode
+                  restores the baseline A6/A7 band once only when automation
+                  owns an override.
+                </p>
               </div>
-              <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-faint">
-                Uses practical SOC mapped to pack voltage. Disabled mode
-                restores the baseline A6/A7 band once only when automation owns
-                an override.
-              </p>
-            </div>
-            <div
-              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 font-mono text-xs ${
-                savedEnabled
-                  ? "bg-charge/10 text-charge"
+              <div
+                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 font-mono text-xs ${
+                  savedEnabled
+                    ? "bg-charge/10 text-charge"
+                    : cleanupPending
+                      ? "bg-solar/10 text-solar"
+                      : "bg-panel-hi text-faint"
+                }`}
+              >
+                {savedEnabled
+                  ? "Active"
                   : cleanupPending
-                    ? "bg-solar/10 text-solar"
-                    : "bg-panel-hi text-faint"
-              }`}
-            >
-              {savedEnabled ? "Active" : cleanupPending ? "Cleanup" : "Paused"}
+                    ? "Cleanup"
+                    : "Paused"}
+              </div>
             </div>
-          </div>
 
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5 rounded-card border border-line bg-panel-hi px-2.5 py-2.5 sm:mb-3.5 sm:gap-3.5 sm:px-3">
-            <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
-              <input
-                className="control-switch-input"
-                type="checkbox"
-                role="switch"
-                aria-checked={enabled}
-                checked={enabled}
-                onChange={(event) => {
-                  setEnabled(event.target.checked);
-                  setFormDirty(true);
-                }}
-              />
-              <span className="control-switch-track" aria-hidden="true">
-                <span className="control-switch-thumb" />
-              </span>
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm font-medium text-text">
-                  Enable automatic A6/A7 band changes
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5 rounded-card border border-line bg-panel-hi px-2.5 py-2.5 sm:mb-3.5 sm:gap-3.5 sm:px-3">
+              <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
+                <input
+                  className="control-switch-input"
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={enabled}
+                  checked={enabled}
+                  onChange={(event) => {
+                    setEnabled(event.target.checked);
+                    setFormDirty(true);
+                  }}
+                />
+                <span className="control-switch-track" aria-hidden="true">
+                  <span className="control-switch-thumb" />
                 </span>
-              </span>
-            </label>
-            <div className="w-full text-left sm:w-auto sm:shrink-0 sm:text-right">
-              {formDirty ? (
-                <span className="font-mono text-xs text-solar">
-                  Unsaved changes
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm font-medium text-text">
+                    Enable automatic A6/A7 band changes
+                  </span>
                 </span>
-              ) : (
-                <span className="font-mono text-xs text-faint">
-                  Saved: {savedEnabled ? "ON" : "OFF"}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:mt-3.5 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] text-faint">Target SOC</span>
-              <input
-                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                value={targetSoc}
-                onChange={(event) => {
-                  setTargetSoc(event.target.value);
-                  setFormDirty(true);
-                }}
-              />
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] text-faint">Target time</span>
-              <input
-                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
-                type="time"
-                value={targetTime}
-                onChange={(event) => {
-                  setTargetTime(event.target.value);
-                  setFormDirty(true);
-                }}
-              />
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] text-faint">
-                Fallback A6 voltage
-              </span>
-              <input
-                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
-                type="number"
-                min={12.4}
-                max={13.5}
-                step={0.1}
-                value={baselineA6}
-                onChange={(event) => {
-                  setBaselineA6(event.target.value);
-                  setFormDirty(true);
-                }}
-              />
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] text-faint">
-                Fallback A7 voltage
-              </span>
-              <input
-                className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
-                type="number"
-                min={11.2}
-                max={13.5}
-                step={0.1}
-                value={baselineA7}
-                onChange={(event) => {
-                  setBaselineA7(event.target.value);
-                  setFormDirty(true);
-                }}
-              />
-            </label>
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-5">
-            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] text-faint">Target</span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                {targetSummary}
-              </span>
-            </div>
-            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] text-faint">
-                Practical / expected
-              </span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                {practicalSummary} / {desiredSummary}
-                {socGap != null && socGap > 0 && (
-                  <span className="ml-1 text-[10px] font-normal text-faint">
-                    (-{socGap})
+              </label>
+              <div className="w-full text-left sm:w-auto sm:shrink-0 sm:text-right">
+                {formDirty ? (
+                  <span className="font-mono text-xs text-solar">
+                    Unsaved changes
+                  </span>
+                ) : (
+                  <span className="font-mono text-xs text-faint">
+                    Saved: {savedEnabled ? "ON" : "OFF"}
                   </span>
                 )}
-              </span>
+              </div>
             </div>
-            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] text-faint">Power now</span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                {powerSummary}
-              </span>
-            </div>
-            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="flex items-center gap-1 text-[10px] text-faint">
-                Protection band
-                <InfoTip label="Protection band limits info">
-                  {status?.target_band_capped
-                    ? "Capped by inverter limits"
-                    : "Within inverter limits"}
-                </InfoTip>
-              </span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                {targetBandLabel}
-              </span>
-            </div>
-            <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
-              <span className="block text-[10px] text-faint">Next check</span>
-              <span className="mt-0.5 block font-mono text-xs font-medium text-text">
-                {nextEvaluation}
-              </span>
-            </div>
-          </div>
 
-          <div className="mt-2.5 rounded-card border border-line bg-panel-hi px-3 py-2.5">
-            <span className="text-xs font-semibold text-text">
-              Now: {explain.title}
-            </span>
-            <p className="mt-1.5 text-xs leading-relaxed text-dim">
-              {explain.body}
-            </p>
-          </div>
+            <div className="mt-3 grid grid-cols-1 gap-2.5 sm:mt-3.5 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] text-faint">Target SOC</span>
+                <input
+                  className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={targetSoc}
+                  onChange={(event) => {
+                    setTargetSoc(event.target.value);
+                    setFormDirty(true);
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] text-faint">Target time</span>
+                <input
+                  className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                  type="time"
+                  value={targetTime}
+                  onChange={(event) => {
+                    setTargetTime(event.target.value);
+                    setFormDirty(true);
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] text-faint">
+                  Fallback A6 voltage
+                </span>
+                <input
+                  className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                  type="number"
+                  min={12.4}
+                  max={13.5}
+                  step={0.1}
+                  value={baselineA6}
+                  onChange={(event) => {
+                    setBaselineA6(event.target.value);
+                    setFormDirty(true);
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] text-faint">
+                  Fallback A7 voltage
+                </span>
+                <input
+                  className="h-8 w-full rounded-card border border-line bg-panel-hi px-2.5 font-mono text-sm text-text outline-none focus:border-line-hi"
+                  type="number"
+                  min={11.2}
+                  max={13.5}
+                  step={0.1}
+                  value={baselineA7}
+                  onChange={(event) => {
+                    setBaselineA7(event.target.value);
+                    setFormDirty(true);
+                  }}
+                />
+              </label>
+            </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={saveAutomation}
-              disabled={
-                busy || automation.isLoading || automation.isError || !formDirty
-              }
-              className={`inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45 ${
-                formDirty ? "border-charge bg-charge/15 text-text" : ""
-              }`}
-            >
-              {mutations.updateAutomation.isPending ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Save size={13} />
-              )}
-              Save target
-            </button>
-            <button
-              onClick={evaluateNow}
-              disabled={busy || automation.isLoading || automation.isError}
-              className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
-            >
-              {mutations.evaluateAutomation.isPending ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Play size={13} />
-              )}
-              Evaluate now
-            </button>
+            <div className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-5">
+              <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
+                <span className="block text-[10px] text-faint">Target</span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {targetSummary}
+                </span>
+              </div>
+              <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
+                <span className="block text-[10px] text-faint">
+                  Practical / expected
+                </span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {practicalSummary} / {desiredSummary}
+                  {socGap != null && socGap > 0 && (
+                    <span className="ml-1 text-[10px] font-normal text-faint">
+                      (-{socGap})
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
+                <span className="block text-[10px] text-faint">Power now</span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {powerSummary}
+                </span>
+              </div>
+              <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
+                <span className="flex items-center gap-1 text-[10px] text-faint">
+                  Protection band
+                  <InfoTip label="Protection band limits info">
+                    {status?.target_band_capped
+                      ? "Capped by inverter limits"
+                      : "Within inverter limits"}
+                  </InfoTip>
+                </span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {targetBandLabel}
+                </span>
+              </div>
+              <div className="bg-panel-hi px-2.5 py-2 sm:px-3">
+                <span className="block text-[10px] text-faint">Next check</span>
+                <span className="mt-0.5 block font-mono text-xs font-medium text-text">
+                  {nextEvaluation}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-2.5 rounded-card border border-line bg-panel-hi px-3 py-2.5">
+              <span className="text-xs font-semibold text-text">
+                Now: {explain.title}
+              </span>
+              <p className="mt-1.5 text-xs leading-relaxed text-dim">
+                {explain.body}
+              </p>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={saveAutomation}
+                disabled={
+                  busy ||
+                  automation.isLoading ||
+                  automation.isError ||
+                  !formDirty
+                }
+                className={`inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45 ${
+                  formDirty ? "border-charge bg-charge/15 text-text" : ""
+                }`}
+              >
+                {mutations.updateAutomation.isPending ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Save size={13} />
+                )}
+                Save target
+              </button>
+              <button
+                onClick={evaluateNow}
+                disabled={busy || automation.isLoading || automation.isError}
+                className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-card border border-line bg-panel-hi px-3 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
+              >
+                {mutations.evaluateAutomation.isPending ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Play size={13} />
+                )}
+                Evaluate now
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="rounded-card border border-line bg-panel p-3 sm:p-4">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-3.5 sm:gap-4">
@@ -894,6 +914,7 @@ interface ControlGroupProps {
   writingId: string | null;
   readingId: string | null;
   controlLabelColors: ReadonlyMap<string, string>;
+  canWrite: boolean;
 }
 
 function ControlGroup({
@@ -907,6 +928,7 @@ function ControlGroup({
   writingId,
   readingId,
   controlLabelColors,
+  canWrite,
 }: ControlGroupProps) {
   return (
     <div className="mt-3.5">
@@ -943,7 +965,7 @@ function ControlGroup({
                     >
                       {control.label}
                     </span>
-                    {!control.writable && (
+                    {!control.writable && canWrite && (
                       <span className="shrink-0 text-xs font-medium leading-snug text-faint">
                         read-only
                       </span>
@@ -1033,26 +1055,28 @@ function ControlGroup({
                     )}
                     Read
                   </button>
-                  <button
-                    className="inline-flex min-h-7 items-center justify-center gap-1 rounded-card border border-line bg-panel-hi px-2.5 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
-                    onClick={() => sendControl(control)}
-                    disabled={busy || !control.writable || !changed}
-                    title={
-                      !control.writable
-                        ? "This control is read-only"
-                        : !changed
-                          ? "Edit the value before sending"
-                          : `Send ${value || "(blank)"} to the inverter`
-                    }
-                    aria-label={`Send ${control.label} to inverter`}
-                  >
-                    {isWriting ? (
-                      <Loader2 size={11} className="animate-spin" />
-                    ) : (
-                      <Send size={11} />
-                    )}{" "}
-                    Send
-                  </button>
+                  {canWrite && (
+                    <button
+                      className="inline-flex min-h-7 items-center justify-center gap-1 rounded-card border border-line bg-panel-hi px-2.5 text-xs text-dim transition-colors hover:border-line-hi hover:text-text disabled:cursor-default disabled:opacity-45"
+                      onClick={() => sendControl(control)}
+                      disabled={busy || !control.writable || !changed}
+                      title={
+                        !control.writable
+                          ? "This control is read-only"
+                          : !changed
+                            ? "Edit the value before sending"
+                            : `Send ${value || "(blank)"} to the inverter`
+                      }
+                      aria-label={`Send ${control.label} to inverter`}
+                    >
+                      {isWriting ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : (
+                        <Send size={11} />
+                      )}{" "}
+                      Send
+                    </button>
+                  )}
                 </div>
               </div>
             );
