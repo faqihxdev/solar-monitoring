@@ -1,0 +1,93 @@
+[
+  {
+    "id": "mainsToBatteryOperatPoint",
+    "label": "Return to battery voltage",
+    "group": "battery",
+    "unit": "V",
+    "scale": 1,
+    "writable": false,
+    "type": "number",
+    "hint": "Leave grid bypass once the pack reaches this voltage"
+  },
+  {
+    "id": "batLowToUtiVolt",
+    "label": "Switch to grid voltage",
+    "group": "battery",
+    "unit": "V",
+    "scale": 1,
+    "writable": false,
+    "type": "number",
+    "hint": "Switch loads to grid bypass at or below this pack voltage"
+  },
+  {
+    "id": "batteryUndervoltageCutoffPoint",
+    "label": "Low voltage cutoff",
+    "group": "battery",
+    "unit": "V",
+    "scale": 1,
+    "writable": false,
+    "type": "number",
+    "hint": "Battery discharge stops at this pack voltage"
+  },
+  {
+    "id": "bulkChargeVolt",
+    "label": "Bulk charge voltage",
+    "group": "battery",
+    "unit": "V",
+    "scale": 1,
+    "writable": false,
+    "type": "number",
+    "hint": "Constant-voltage charge target"
+  },
+  {
+    "id": "floatChargeVolt",
+    "label": "Float charge voltage",
+    "group": "battery",
+    "unit": "V",
+    "scale": 1,
+    "writable": false,
+    "type": "number",
+    "hint": "Float charge target"
+  },
+  {
+    "id": "power_value",
+    "field": "rateWatt",
+    "label": "Rated output power",
+    "group": "other",
+    "unit": "W",
+    "scale": 1,
+    "writable": false,
+    "type": "number",
+    "hint": "Inverter rated output, used as the load gauge maximum"
+  },
+  {
+    "id": "outputConfig",
+    "label": "Output source priority (code)",
+    "group": "other",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "text",
+    "hint": "Growatt setting code, shown as reported"
+  },
+  {
+    "id": "chargeConfig",
+    "label": "Charger source priority (code)",
+    "group": "other",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "text",
+    "hint": "Growatt setting code, shown as reported"
+  },
+  {
+    "id": "batteryType",
+    "label": "Battery type (code)",
+    "group": "other",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "text",
+    "hint": "Growatt setting code, shown as reported"
+  }
+]

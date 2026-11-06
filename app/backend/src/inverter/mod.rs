@@ -8,13 +8,20 @@ use serde_json::Value;
 use std::{future::Future, sync::Arc};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-#[cfg(not(feature = "dess"))]
-compile_error!("Enable exactly one inverter feature: dess");
+#[cfg(not(any(feature = "dess", feature = "growatt")))]
+compile_error!("Enable exactly one inverter feature: dess or growatt");
+#[cfg(all(feature = "dess", feature = "growatt"))]
+compile_error!("Enable exactly one inverter feature: dess or growatt");
 
 #[cfg(feature = "dess")]
 pub mod dess;
 #[cfg(feature = "dess")]
 pub type Device = dess::Dess;
+
+#[cfg(feature = "growatt")]
+pub mod growatt;
+#[cfg(all(feature = "growatt", not(feature = "dess")))]
+pub type Device = growatt::Growatt;
 
 pub type Settings = <Device as Inverter>::Settings;
 pub type Extras = <Device as Inverter>::Extras;

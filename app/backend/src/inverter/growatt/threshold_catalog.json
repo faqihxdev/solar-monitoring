@@ -1,0 +1,45 @@
+{
+  "battery_voltage": [
+    {
+      "id": "a3_float_charge",
+      "value": 55,
+      "label": "Float charge",
+      "hint": "floatChargeVolt - float charge target",
+      "color": "#5f8fd6",
+      "field_id": "floatChargeVolt",
+      "scale": 1,
+      "from_device": false
+    },
+    {
+      "id": "a6_return_pln",
+      "value": 54,
+      "label": "Return to battery",
+      "hint": "mainsToBatteryOperatPoint - leave grid bypass when pack >= this",
+      "color": "#6b9e3e",
+      "field_id": "mainsToBatteryOperatPoint",
+      "scale": 1,
+      "from_device": false
+    },
+    {
+      "id": "a7_switch_pln",
+      "value": 51.2,
+      "label": "Switch to grid",
+      "hint": "batLowToUtiVolt - grid bypass when pack <= this",
+      "color": "#b85c2a",
+      "field_id": "batLowToUtiVolt",
+      "scale": 1,
+      "from_device": false
+    },
+    {
+      "id": "a4_low_protection",
+      "value": 44.8,
+      "label": "Low voltage cutoff",
+      "hint": "batteryUndervoltageCutoffPoint - battery discharge stops",
+      "color": "#b14a4a",
+      "field_id": "batteryUndervoltageCutoffPoint",
+      "scale": 1,
+      "from_device": false
+    }
+  ],
+  "battery_soc": []
+}
