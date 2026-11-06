@@ -4,8 +4,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
   ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
@@ -128,11 +126,6 @@ interface Row {
   v?: number | null;
   practicalSoc?: number | null;
   curveGuideV?: number | null;
-  // Per-tracker solar watts and volts, for inverters that report them.
-  pv1?: number | null;
-  pv2?: number | null;
-  pv1V?: number | null;
-  pv2V?: number | null;
 }
 
 interface VoltPoint {
@@ -990,169 +983,6 @@ function SolarGenerationChart({
   );
 }
 
-function TrackerTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: { payload: Row }[];
-  label?: number;
-}) {
-  const row = payload?.[0]?.payload;
-  if (!active || !row) return null;
-  const lines = [
-    { name: "PV1", w: row.pv1, v: row.pv1V, color: C.pvStrings[0] },
-    { name: "PV2", w: row.pv2, v: row.pv2V, color: C.pvStrings[1] },
-  ];
-  return (
-    <div className="rounded-card border border-line-hi bg-bg px-3 py-2 font-mono text-xs shadow-xl shadow-black/40">
-      <div className="mb-1.5 text-xs text-faint">
-        {label ? fullTime(label) : ""}
-      </div>
-      {lines.map((l) => (
-        <div
-          className="flex items-center justify-between gap-4 leading-relaxed"
-          key={l.name}
-        >
-          <span className="inline-flex items-center gap-1.5 text-dim">
-            <i
-              className="inline-block h-2.5 w-2.5 rounded-xs"
-              style={{ background: l.color }}
-            />
-            {l.name}
-          </span>
-          <span>
-            {l.w == null ? "—" : `${num(l.w, 0)} W`}
-            <span className="text-faint">
-              {" "}
-              · {l.v == null ? "—" : num(l.v, 0)} V
-            </span>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-const TrackerChartBody = memo(function TrackerChartBody({
-  data,
-  domain,
-}: {
-  data: Row[];
-  domain: [number, number];
-}) {
-  return (
-    <ResponsiveContainer width="100%" height={196}>
-      <LineChart
-        data={data}
-        margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-        syncId={CHART_SYNC_ID}
-      >
-        <CartesianGrid stroke={C.line} vertical={false} />
-        <XAxis
-          dataKey="t"
-          type="number"
-          scale="time"
-          domain={domain}
-          tickFormatter={(v) => clockTime(v)}
-          tick={AXIS}
-          stroke={C.line}
-          minTickGap={48}
-        />
-        <YAxis
-          tick={AXIS}
-          stroke={C.line}
-          width={34}
-          domain={[0, "auto"]}
-          tickFormatter={(v) => num(v, 0)}
-        />
-        <Tooltip
-          content={<TrackerTooltip />}
-          isAnimationActive={false}
-          cursor={{ stroke: C.lineHi, strokeWidth: 1, strokeDasharray: "4 4" }}
-        />
-        <Line
-          type="stepAfter"
-          dataKey="pv1"
-          name="PV1"
-          stroke={C.pvStrings[0]}
-          strokeWidth={2}
-          dot={false}
-          isAnimationActive={false}
-          connectNulls
-        />
-        <Line
-          type="stepAfter"
-          dataKey="pv2"
-          name="PV2"
-          stroke={C.pvStrings[1]}
-          strokeWidth={2}
-          strokeDasharray="5 3"
-          dot={false}
-          isAnimationActive={false}
-          connectNulls
-        />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-});
-
-// Shown only for inverters that report each MPPT input separately.
-function TrackerChart({
-  data,
-  reading,
-  domain,
-}: {
-  data: Row[];
-  reading: Reading | undefined | null;
-  domain: [number, number];
-}) {
-  const strings = reading?.pv_strings ?? [];
-  return (
-    <div className="chart-panel">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="chart-title">Solar by tracker</span>
-        <span className="flex items-baseline gap-1.5 font-mono text-sm tabular-nums sm:text-base">
-          {strings.map((s, i) => (
-            <Fragment key={s.name}>
-              {i > 0 && <span className="text-xs text-faint">/</span>}
-              <span className="text-text">
-                <small className="text-faint">{s.name}</small>{" "}
-                {s.power == null ? "—" : num(s.power, 0)} <small>W</small>
-              </span>
-            </Fragment>
-          ))}
-        </span>
-      </div>
-      <TrackerChartBody data={data} domain={domain} />
-      <div className="flex min-h-5 flex-wrap items-center justify-between gap-1.5 pt-1.5">
-        <span className="font-mono text-xs tracking-wide text-faint">
-          Each MPPT input, in watts
-        </span>
-        <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-dim">
-          <span className="inline-flex items-center gap-1.5">
-            <i
-              className="inline-block h-0.5 w-3.5"
-              style={{ background: C.pvStrings[0] }}
-            />
-            PV1
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <i
-              className="inline-block h-0.5 w-3.5"
-              style={{
-                background: `repeating-linear-gradient(90deg, ${C.pvStrings[1]} 0 4px, transparent 4px 6px)`,
-              }}
-            />
-            PV2
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function MetricChart({
   title,
   data,
@@ -1256,10 +1086,6 @@ export default function Charts({
         v: p.battery_voltage,
         practicalSoc: null,
         curveGuideV: null,
-        pv1: p.pv_strings?.[0]?.power ?? null,
-        pv2: p.pv_strings?.[1]?.power ?? null,
-        pv1V: p.pv_strings?.[0]?.voltage ?? null,
-        pv2V: p.pv_strings?.[1]?.voltage ?? null,
       })),
     [history],
   );
@@ -1572,15 +1398,6 @@ export default function Charts({
             danger={{ from: 0, to: GRID_LOW_VOLTAGE_V }}
             domain={domain}
           />
-          {rows.some((r) => r.pv1 != null || r.pv2 != null) && (
-            <div className="lg:col-span-2">
-              <TrackerChart
-                data={rows}
-                reading={displayedReading}
-                domain={domain}
-              />
-            </div>
-          )}
           <div className="lg:col-span-2">
             <SolarLoadChart
               data={rows}

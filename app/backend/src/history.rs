@@ -36,9 +36,6 @@ pub struct HistoryPoint {
     pub grid_power_inferred: bool,
     #[serde(flatten)]
     pub voltage_stamp: Option<VoltageStamp>,
-    /// Per-tracker PV readings, for inverters that report them.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pv_strings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub polled_at_iso: Option<String>,
 }
@@ -85,7 +82,7 @@ impl Store {
         } else {
             None
         };
-        let mut statement=db.prepare_cached("SELECT id,device_gts,polled_at,battery_soc,battery_status,battery_power,battery_voltage,mppt_battery_voltage,pv_power,load_current,load_power,grid_voltage,grid_power,working_state,json_extract(payload_json,'$.pv_strings') FROM telemetry_snapshots WHERE device_sn=? AND polled_at>=? ORDER BY polled_at ASC")?;
+        let mut statement=db.prepare_cached("SELECT id,device_gts,polled_at,battery_soc,battery_status,battery_power,battery_voltage,mppt_battery_voltage,pv_power,load_current,load_power,grid_voltage,grid_power,working_state FROM telemetry_snapshots WHERE device_sn=? AND polled_at>=? ORDER BY polled_at ASC")?;
         let mut query = statement.query(params![sn, at - hours * 3600.0])?;
         let mut points = Vec::new();
         let mut index = 0;
@@ -125,9 +122,6 @@ impl Store {
                 grid_power_effective: 0.0,
                 grid_power_inferred: false,
                 voltage_stamp: None,
-                pv_strings: row
-                    .get::<_, Option<String>>(14)?
-                    .and_then(|s| serde_json::from_str(&s).ok()),
                 polled_at_iso: None,
             };
             let power = Power {

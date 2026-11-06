@@ -3,7 +3,6 @@ import {
   type DeviceId,
   type EnergyConnection,
 } from "../energyViewModel";
-import { C } from "../theme";
 
 export interface SceneProps {
   connections: EnergyConnection[];
@@ -42,10 +41,9 @@ export function DeviceCallout({
             : `${Math.round(soc)}%`
           : (connection?.value ?? "DC / AC")}
       </strong>
-      {connection?.strings?.map((s, i) => (
+      {connection?.strings?.map((s) => (
         <span className="pv-string" key={s.name}>
-          <i style={{ background: C.pvStrings[i] ?? C.solar }} aria-hidden />
-          {s.name} {s.value} · {s.voltage}
+          {s.name} {s.value} · {s.voltage} · {s.current}
         </span>
       ))}
       {connection?.flowDetail && (

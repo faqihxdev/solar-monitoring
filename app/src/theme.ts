@@ -10,8 +10,6 @@ export const C = {
   textFaint: "#858585",
 
   solar: "#e6b422",
-  // Per-tracker solar lines: two solar-family steps validated for CVD on the dark panel.
-  pvStrings: ["#b5900e", "#865c10"],
   charge: "#4eb45a",
   discharge: "#e8743b",
   grid: "#4a93c4",

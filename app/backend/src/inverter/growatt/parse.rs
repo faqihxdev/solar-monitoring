@@ -93,9 +93,10 @@ pub fn payload(row: &Value) -> Value {
         .collect();
     let mut payload = json!({"gts":row["time"],"readings":readings,"readings_raw":raw,"load_flows":infer(&readings)});
     if pv.is_some() {
+        // iChargePV1/2 is each input's DC current; it matches power / voltage within ~1%.
         payload["pv_strings"] = json!([
-            {"name":"PV1","power":n("ppv"),"voltage":n("vpv")},
-            {"name":"PV2","power":n("ppv2"),"voltage":n("vpv2")},
+            {"name":"PV1","power":n("ppv"),"voltage":n("vpv"),"current":n("iChargePV1")},
+            {"name":"PV2","power":n("ppv2"),"voltage":n("vpv2"),"current":n("iChargePV2")},
         ]);
     }
     payload

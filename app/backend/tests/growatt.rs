@@ -50,8 +50,8 @@ fn live_and_history_rows_for_one_sample_store_identically() {
     assert_eq!(
         live["pv_strings"],
         json!([
-            {"name":"PV1","power":331.0,"voltage":142.9},
-            {"name":"PV2","power":456.0,"voltage":188.1},
+            {"name":"PV1","power":331.0,"voltage":142.9,"current":2.4},
+            {"name":"PV2","power":456.0,"voltage":188.1,"current":2.5},
         ])
     );
 }
@@ -237,17 +237,9 @@ async fn backfill_then_live_polls_store_each_sample_once() {
     assert_eq!(stored, json!({"n":3,"v":3}));
     let voltages = db.call(|s| s.voltage("sandbox", 1.0, now())).await.unwrap();
     assert_eq!(voltages.len(), 3);
-    let (latest, history) = db
-        .call(|s| {
-            Ok((
-                s.latest("sandbox")?,
-                s.history("sandbox", 1.0, now(), None)?,
-            ))
-        })
-        .await
-        .unwrap();
+    let latest = db.call(|s| s.latest("sandbox")).await.unwrap();
     assert_eq!(latest["pv_strings"][1]["name"], "PV2");
-    assert!(history.iter().all(|p| p["pv_strings"].is_array()));
+    assert_eq!(latest["pv_strings"][0]["current"], 2.6);
 
     // A gap before the newest snapshot is filled without moving the live poll state.
     let state_before = db

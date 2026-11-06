@@ -7,6 +7,7 @@ export interface PvString {
   name: string;
   power: number | null;
   voltage: number | null;
+  current?: number | null;
 }
 
 export interface Reading {

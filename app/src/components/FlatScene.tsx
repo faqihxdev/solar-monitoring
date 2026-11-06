@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { DeviceId, EnergyConnection } from "../energyViewModel";
 import { C } from "../theme";
 import {
@@ -69,9 +69,40 @@ function FlowCable({
 export default function FlatScene(props: SceneProps) {
   const soc = Math.max(0, Math.min(100, props.soc ?? 0));
   const select = (id: DeviceId) => ({ onClick: () => props.onSelect(id) });
+  const scene = useRef<HTMLDivElement>(null);
+  const labels = useRef<Partial<Record<DeviceId, HTMLButtonElement | null>>>(
+    {},
+  );
+  // Labels are centered on fixed points; shift any that would cross the scene edge.
+  useLayoutEffect(() => {
+    const container = scene.current;
+    if (!container) return;
+    const fit = () => {
+      const width = container.clientWidth;
+      for (const id of IDS) {
+        const label = labels.current[id];
+        if (!label) continue;
+        const center = (LABELS[id][0] / WIDTH) * width;
+        const half = label.offsetWidth / 2;
+        const inside = Math.min(Math.max(center, half + 4), width - half - 4);
+        label.style.setProperty("--fit-x", `${inside - center}px`);
+      }
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(container);
+    for (const label of Object.values(labels.current)) {
+      if (label) observer.observe(label);
+    }
+    return () => observer.disconnect();
+  }, [props.connections, props.soc]);
   return (
     <div className="scene-wrap flat-scene-wrap">
-      <div className="flat-scene" aria-label="Energy installation diagram">
+      <div
+        className="flat-scene"
+        aria-label="Energy installation diagram"
+        ref={scene}
+      >
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className="flat-scene-svg"
@@ -181,6 +212,9 @@ export default function FlatScene(props: SceneProps) {
           return (
             <button
               key={id}
+              ref={(el) => {
+                labels.current[id] = el;
+              }}
               className={`device-label installation-label flat-label ${props.selected === id ? "is-selected" : ""}`}
               aria-pressed={props.selected === id}
               aria-controls="device-inspector"
