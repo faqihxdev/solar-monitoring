@@ -371,70 +371,50 @@ impl Store {
     }
     pub fn save_snapshot(&self, sn: &str, payload: &Value, at: f64) -> Result<bool> {
         ensure!(self.writable, "Database is read-only");
-        let r = &payload["readings"];
-        let f = payload
-            .get("load_flows")
-            .cloned()
-            .unwrap_or_else(|| energy::infer(r));
-        let gts = text(&payload["gts"]);
-        let hash = format!(
-            "{:x}",
-            Sha256::digest(canonical(
-                &json!({"gts":gts,"readings":r,"readings_raw":payload["readings_raw"],"load_flows":f})
-            ))
-        );
+        let (hash, gts, columns, values) = snapshot_row(sn, payload, at);
         let previous = self.one(
             "SELECT last_hash,last_polled_at FROM device_state WHERE device_sn=?",
             &[sql(sn)],
         )?;
         if previous["last_hash"].as_str() == Some(&hash) {
-            if at - number(&previous["last_polled_at"]).unwrap_or(0.0) >= 60.0 {
-                self.run(
-                    "UPDATE device_state SET last_polled_at=? WHERE device_sn=?",
-                    &[sql(at), sql(sn)],
-                )?;
-            }
+            self.heartbeat(sn, at)?;
             return Ok(false);
-        }
-        let mut columns = vec![
-            "device_sn",
-            "device_gts",
-            "data_hash",
-            "payload_json",
-            "polled_at",
-        ];
-        let mut values = vec![
-            sql(sn),
-            sql_value(&json!(gts)),
-            sql(&hash),
-            sql(
-                json!({"readings_raw":payload.get("readings_raw").cloned().unwrap_or(json!({}))})
-                    .to_string(),
-            ),
-            sql(at),
-        ];
-        for key in energy::FLAT {
-            columns.push(key);
-            values.push(sql_value(&r[key]));
-        }
-        for key in energy::FLOWS {
-            columns.push(key);
-            values.push(sql_value(&f[key]));
-        }
-        for key in energy::FLAGS {
-            columns.push(key);
-            values.push(sql(i64::from(f[key].as_bool().unwrap_or(false))));
         }
         let conn = self.connection()?;
         let tx = conn.unchecked_transaction()?;
-        tx.prepare_cached(&format!(
-            "INSERT INTO telemetry_snapshots ({}) VALUES ({})",
-            columns.join(","),
-            vec!["?"; columns.len()].join(",")
-        ))?
-        .execute(params_from_iter(&values))?;
+        insert_snapshot(&tx, &columns, &values)?;
         tx.prepare_cached("INSERT INTO device_state(device_sn,last_hash,last_gts,last_polled_at) VALUES(?,?,?,?) ON CONFLICT(device_sn) DO UPDATE SET last_hash=excluded.last_hash,last_gts=excluded.last_gts,last_polled_at=excluded.last_polled_at")?.execute(params![sn,hash,gts,at])?;
         tx.commit()?;
+        Ok(true)
+    }
+    /// Records a successful poll that stored nothing, at most once a minute.
+    pub fn heartbeat(&self, sn: &str, at: f64) -> Result<()> {
+        self.run(
+            "UPDATE device_state SET last_polled_at=? WHERE device_sn=? AND ?-last_polled_at>=60",
+            &[sql(at), sql(sn), sql(at)],
+        )?;
+        Ok(())
+    }
+    /// Inserts an older sample from vendor history without touching the live poll state.
+    /// Skips it when a snapshot already exists from `before` seconds earlier to `after` later.
+    pub fn insert_history(
+        &self,
+        sn: &str,
+        payload: &Value,
+        at: f64,
+        before: f64,
+        after: f64,
+    ) -> Result<bool> {
+        ensure!(self.writable, "Database is read-only");
+        let covered = self.one(
+            "SELECT 1 AS found FROM telemetry_snapshots WHERE device_sn=? AND polled_at BETWEEN ? AND ? LIMIT 1",
+            &[sql(sn), sql(at - before), sql(at + after)],
+        )?;
+        if !covered.is_null() {
+            return Ok(false);
+        }
+        let (_, _, columns, values) = snapshot_row(sn, payload, at);
+        insert_snapshot(self.connection()?, &columns, &values)?;
         Ok(true)
     }
     pub fn upsert_voltages(&self, sn: &str, samples: &[Value]) -> Result<usize> {
@@ -542,6 +522,61 @@ impl Store {
         self.run("INSERT INTO automation_write_budget(device_sn,field_id,date_key,actor,count,last_write_at) VALUES(?,?,?,'automation',1,?) ON CONFLICT(device_sn,field_id,date_key,actor) DO UPDATE SET count=count+1,last_write_at=excluded.last_write_at",&[sql(sn),sql(id),sql(date),sql(now())])?;
         Ok(())
     }
+}
+type SnapshotRow = (String, Option<String>, Vec<&'static str>, Vec<SqlValue>);
+/// The content hash, gts, and column values of a telemetry snapshot.
+fn snapshot_row(sn: &str, payload: &Value, at: f64) -> SnapshotRow {
+    let r = &payload["readings"];
+    let f = payload
+        .get("load_flows")
+        .cloned()
+        .unwrap_or_else(|| energy::infer(r));
+    let gts = text(&payload["gts"]);
+    let hash = format!(
+        "{:x}",
+        Sha256::digest(canonical(
+            &json!({"gts":gts,"readings":r,"readings_raw":payload["readings_raw"],"load_flows":f})
+        ))
+    );
+    let mut columns = vec![
+        "device_sn",
+        "device_gts",
+        "data_hash",
+        "payload_json",
+        "polled_at",
+    ];
+    let mut values = vec![
+        sql(sn),
+        sql_value(&json!(gts)),
+        sql(&hash),
+        sql(
+            json!({"readings_raw":payload.get("readings_raw").cloned().unwrap_or(json!({}))})
+                .to_string(),
+        ),
+        sql(at),
+    ];
+    for key in energy::FLAT {
+        columns.push(key);
+        values.push(sql_value(&r[key]));
+    }
+    for key in energy::FLOWS {
+        columns.push(key);
+        values.push(sql_value(&f[key]));
+    }
+    for key in energy::FLAGS {
+        columns.push(key);
+        values.push(sql(i64::from(f[key].as_bool().unwrap_or(false))));
+    }
+    (hash, gts, columns, values)
+}
+fn insert_snapshot(db: &Connection, columns: &[&str], values: &[SqlValue]) -> Result<()> {
+    db.prepare_cached(&format!(
+        "INSERT INTO telemetry_snapshots ({}) VALUES ({})",
+        columns.join(","),
+        vec!["?"; columns.len()].join(",")
+    ))?
+    .execute(params_from_iter(values))?;
+    Ok(())
 }
 pub fn sql(v: impl rusqlite::ToSql) -> SqlValue {
     match v.to_sql().expect("primitive SQL parameter") {
