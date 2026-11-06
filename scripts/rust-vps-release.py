@@ -249,9 +249,16 @@ def difference(a, b, path='$'):
     return None
 
 
-def port_available(port):
-    with socket.socket() as sock:
-        sock.bind(('127.0.0.1', port))
+def free_ports(count):
+    # Other services on the shared host may hold any fixed port, so let the OS choose.
+    sockets = [socket.socket() for _ in range(count)]
+    try:
+        for sock in sockets:
+            sock.bind(('127.0.0.1', 0))
+        return [sock.getsockname()[1] for sock in sockets]
+    finally:
+        for sock in sockets:
+            sock.close()
 
 
 def validate_live_poller(sources, sandbox):
@@ -292,15 +299,14 @@ def compare_with_legacy(binary, sandbox):
     guard = release / 'no-network.mjs'
     guard.write_text('globalThis.fetch = async () => { throw new Error("Network disabled during copied-database validation"); };\n')
     guard.chmod(0o644)
-    for port in [43873, 43874]:
-        port_available(port)
+    rust_port, legacy_port = free_ports(2)
     rust_args = ['runuser', '-u', 'solar', '--', str(binary), '--env-file', str(ROOT / '.env'),
                  '--telemetry-db', str(sandbox / 'telemetry.db'), '--control-db', str(sandbox / 'control.db'),
-                 'api', '--port', '43873']
+                 'api', '--port', str(rust_port)]
     legacy_args = ['runuser', '-u', 'solar', '--', 'env',
                    'DESS_DB_PATH=' + str(sandbox / 'telemetry.db'),
                    'DESS_CONTROL_DB_PATH=' + str(sandbox / 'legacy-control.db'),
-                   'DESS_DASHBOARD_PORT=43874', 'AUTOMATION_CHECK_INTERVAL_SECONDS=86400',
+                   f'DESS_DASHBOARD_PORT={legacy_port}', 'AUTOMATION_CHECK_INTERVAL_SECONDS=86400',
                    '/usr/bin/node', '--import', 'tsx', '--import', str(guard), str(ROOT / 'app/server/index.ts')]
     children = []
     logs = []
@@ -311,7 +317,7 @@ def compare_with_legacy(binary, sandbox):
             os.chmod(log.name, 0o600)
             logs.append(log)
             children.append(subprocess.Popen(args, cwd=ROOT / 'app', stdout=log, stderr=log, start_new_session=True))
-        for port in [43873, 43874]:
+        for port in [rust_port, legacy_port]:
             for attempt in range(30):
                 require(all(child.poll() is None for child in children), 'Validation API exited; inspect private logs')
                 try:
@@ -328,8 +334,8 @@ def compare_with_legacy(binary, sandbox):
                  '/api/daily?days=30&date=2026-09-29', '/api/summary',
                  '/api/controls', '/api/control-log?limit=80', '/api/automation', '/api/ready']
         for path in paths:
-            rs, rv = get_json(43873, path)
-            ts, tv = get_json(43874, path)
+            rs, rv = get_json(rust_port, path)
+            ts, tv = get_json(legacy_port, path)
             # Control copies are separate; the exposed config must retain its path keys.
             if path == '/api/config':
                 rv['control_db_path'] = tv['control_db_path']
@@ -355,10 +361,10 @@ def compare_with_legacy(binary, sandbox):
 
 def check_release_api(binary, sandbox):
     # Copied databases, no --live-device: the API serves stored data without network access.
-    port_available(43873)
+    [port] = free_ports(1)
     args = ['runuser', '-u', 'solar', '--', str(binary), '--env-file', str(ROOT / '.env'),
             '--telemetry-db', str(sandbox / 'telemetry.db'), '--control-db', str(sandbox / 'control.db'),
-            'api', '--port', '43873']
+            'api', '--port', str(port)]
     checked = []
     with (release / 'rust-validation.log').open('x') as log:
         os.chmod(log.name, 0o600)
@@ -367,24 +373,24 @@ def check_release_api(binary, sandbox):
             for attempt in range(30):
                 require(child.poll() is None, 'Validation API exited; inspect private log')
                 try:
-                    require(get_json(43873, '/api/config')[0] == 200, 'Validation config failed')
+                    require(get_json(port, '/api/config')[0] == 200, 'Validation config failed')
                     break
                 except (OSError, urllib.error.URLError):
                     time.sleep(0.5)
             else:
                 raise RuntimeError('Validation API did not start')
-            status, config = get_json(43873, '/api/config')
+            status, config = get_json(port, '/api/config')
             require(config.get('inverter', {}).get('id') == INVERTER, 'Release reports another inverter')
             paths = ['/api/latest', '/api/history?hours=24', '/api/history?hours=168&max_points=200',
                      '/api/snapshots?limit=5', '/api/voltage-history?hours=168', '/api/daily?days=7',
                      '/api/summary', '/api/controls', '/api/control-log?limit=80', '/api/thresholds']
             for path in paths:
-                status, payload = get_json(43873, path)
+                status, payload = get_json(port, path)
                 require(status == 200 and isinstance(payload, dict), f'Validation endpoint failed: {path}')
                 checked.append({'path': path, 'status': status})
                 print('Checked ' + path, flush=True)
             if not config['inverter']['automation']:
-                require(get_json(43873, '/api/automation')[0] == 404, 'Automation route must not exist')
+                require(get_json(port, '/api/automation')[0] == 404, 'Automation route must not exist')
                 checked.append({'path': '/api/automation', 'status': 404})
         finally:
             if child.poll() is None:
