@@ -259,6 +259,36 @@ database identity, schema, history, automation settings, Kebun/Nginx continuity,
 and the public Cloudflare Access response, then exercises the Rust backup
 service. Failure restores the previous service commands automatically.
 
+### Switching inverters
+
+`build-rust-vps.sh RELEASE growatt` builds and tests the Growatt variant and
+records `growatt` in the release's `inverter` file. Releases without that file
+are DESS builds. When a release's inverter differs from the running one,
+`validate`, `cutover` and `rollback` refuse to run without `--inverter-switch`.
+The flag also stops them requiring readiness from the outgoing backend, whose
+inverter may no longer report.
+
+1. Deploy the frontend first with `scripts/deploy-vps.sh --ui-only`. It reads
+   the inverter profile from `/api/config` and still works with the running
+   DESS backend.
+2. Add `GROWATT_TOKEN` and `GROWATT_SN` to `/opt/solar-system/.env` before
+   validation. Validation records the file's hash and cutover refuses a change.
+3. Build, then run `audit`, `validate --inverter-switch`,
+   `cutover --inverter-switch` and `smoke`.
+
+The Growatt build keeps using `solar.db` and `solar-control.db`. Every table is
+keyed by device serial, so it stores and reads only Growatt rows. The DESS
+history stays in the same files, and rolling back shows it again. Validation
+checks 10 Growatt API endpoints on copied data, confirms the API reports the
+`growatt` profile and has no automation route, and runs one live Growatt read
+into a copied database with a one-day backfill. Smoke reads the switch-to-grid
+and return-to-battery voltages instead of A6/A7. After cutover, the first poll
+backfills up to 89 days of history in the background.
+
+Roll back an inverter switch with `rollback --inverter-switch` from the new
+release's directory. It restores the previous service commands without waiting
+for readiness.
+
 Rollback the current release with:
 
 ```text

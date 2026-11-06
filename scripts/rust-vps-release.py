@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Solar-only release validation and cutover. Run on utf-sh as root.
 
-Usage: rust-vps-release.py RELEASE {audit,validate,cutover,verify,rollback}
+Usage: rust-vps-release.py RELEASE {audit,validate,cutover,verify,smoke,rollback} [--inverter-switch]
 RELEASE must be rust-YYYYMMDDTHHMMSSZ under /opt/solar-system/releases.
 The build script must finish before validate. Cutover requires its saved report.
 Rollback restores service commands and keeps the current compatible databases.
+A release built for another inverter than the running one needs --inverter-switch
+on validate, cutover and rollback; the previous inverter may no longer report.
 """
 
 import argparse
@@ -30,6 +32,11 @@ UNITS = ['solar-api.service', 'solar-poller.service', 'solar-db-backup.service']
 DROPIN = '30-rust-backend.conf'
 TABLES = ['telemetry_snapshots', 'battery_voltage_readings', 'device_state',
           'control_values', 'control_events', 'automation_state', 'automation_write_budget']
+# Settings read during smoke checks, per inverter build. These are reads only.
+SMOKE_READS = {'dess': ['bat_power_supply_value', 'bat_mains_power_supply_value'],
+               'growatt': ['mainsToBatteryOperatPoint', 'batLowToUtiVolt']}
+REQUIRED_ENV = {'dess': ['DESS_USR', 'DESS_PWD', 'DESS_COMPANY_KEY', 'DESS_SN', 'DESS_PN'],
+                'growatt': ['GROWATT_TOKEN', 'GROWATT_SN']}
 
 
 def require(condition, message):
@@ -82,6 +89,32 @@ def get_json(port, path, method='GET', body=None):
         return error.code, json.load(error)
 
 
+def release_inverter(path):
+    # Releases built before inverter selection are DESS builds.
+    marker = path / 'inverter'
+    value = marker.read_text().strip() if marker.is_file() else 'dess'
+    require(value in SMOKE_READS, f'Unknown inverter build: {value}')
+    return value
+
+
+def running_inverter():
+    # The poller override names the active release; without one, TypeScript runs DESS.
+    match = re.search(r'/opt/solar-system/releases/(rust-\d{8}T\d{6}Z)/bin/solar-backend',
+                      show('solar-poller.service', 'ExecStart'))
+    return release_inverter(ROOT / 'releases' / match.group(1)) if match else 'dess'
+
+
+def require_env_keys(keys):
+    # Checks names only; values are never read into reports or logs.
+    present = set()
+    for line in (ROOT / '.env').read_text().splitlines():
+        name, sep, value = line.strip().partition('=')
+        if sep and value.strip() and not name.startswith('#'):
+            present.add(name.strip())
+    missing = [key for key in keys if key not in present]
+    require(not missing, 'Missing environment keys: ' + ', '.join(missing))
+
+
 def protected_state():
     state = {'services': {}, 'sites': {}, 'frontend': {}, 'base_units': {}}
     for unit in ['nginx.service', 'kebun.service']:
@@ -114,7 +147,11 @@ def preflight():
     command(['nginx', '-t'])
     command(['curl', '-kfsS', '--max-time', '8', '-o', '/dev/null', '--resolve',
              'kebun.utf.sh:443:127.0.0.1', 'https://kebun.utf.sh/'])
-    require(get_json(43871, '/api/ready')[0] == 200, 'Solar readiness failed')
+    if SWITCHING:
+        # The inverter being replaced may no longer report, so stale telemetry is expected.
+        print('Inverter switch: readiness of the current backend is not required', flush=True)
+    else:
+        require(get_json(43871, '/api/ready')[0] == 200, 'Solar readiness failed')
     for name in ['solar.db', 'solar-control.db']:
         path = DATA / name
         require(path.is_file() and path.resolve() == path, f'Invalid database: {path}')
@@ -178,10 +215,11 @@ def backup(destination, legacy=False):
 
 
 def normalized(value):
+    # 'inverter' is the Rust build profile in /api/config; the TypeScript backend has none.
     if isinstance(value, dict):
         return {key: normalized(item) for key, item in value.items() if key not in {
             'server_now', 'age_seconds', 'desired_practical_soc_now', 'target_voltage',
-            'target_a6', 'target_a7', 'target_band_capped'}}
+            'target_a6', 'target_a7', 'target_band_capped', 'inverter'}}
     if isinstance(value, list):
         return [normalized(item) for item in value]
     return value
@@ -223,8 +261,10 @@ def validate_live_poller(sources, sandbox):
     os.chown(telemetry, int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
     os.chmod(telemetry, 0o600)
     before = inspect(telemetry, sandbox / 'control.db')
+    # GROWATT_BACKFILL_DAYS keeps the history backfill to one request per validation.
     args = ['runuser', '-u', 'solar', '--', 'env', 'POLL_INTERVAL_SECONDS=60',
             'DETAILS_SYNC_INTERVAL_SECONDS=86400', 'DETAILS_BACKFILL_ON_START=0',
+            'GROWATT_BACKFILL_DAYS=1',
             str(release / 'bin/solar-backend'), '--env-file', str(ROOT / '.env'),
             '--telemetry-db', str(telemetry), '--control-db', str(sandbox / 'control.db'),
             '--live-device', 'poller']
@@ -238,7 +278,7 @@ def validate_live_poller(sources, sandbox):
                 after = inspect(telemetry, sandbox / 'control.db')
                 if after['telemetry']['last_poll'] > before['telemetry']['last_poll']:
                     require(time.time() - after['telemetry']['last_poll'] < 30, 'Validation poll is stale')
-                    print('Rust DESS read and copied-database persistence passed', flush=True)
+                    print(f'Rust {INVERTER} read and copied-database persistence passed', flush=True)
                     return {'last_poll': after['telemetry']['last_poll'], 'quick_check': 'ok'}
             raise RuntimeError('Rust poller did not persist a successful live read within 120 seconds')
         finally:
@@ -247,23 +287,8 @@ def validate_live_poller(sources, sandbox):
                 child.wait(timeout=180)
 
 
-def validate():
-    preflight()
-    require(not (release / 'validation.json').exists(), 'Validation already exists; choose a new release for another attempt')
-    binary = release / 'bin/solar-backend'
-    require(binary.is_file() and not binary.is_symlink(), 'Build the Linux binary first')
-    baseline = protected_state()
-    before = inspect()
-    saved, sources = backup(release / 'validation-backup', legacy=True)
-    sandbox = release / 'validation'
-    private_dir(sandbox)
-    for role in ['telemetry', 'control']:
-        shutil.copyfile(sources[role], sandbox / f'{role}.db')
-        os.chown(sandbox / f'{role}.db', int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
-        os.chmod(sandbox / f'{role}.db', 0o600)
-    shutil.copyfile(sandbox / 'control.db', sandbox / 'legacy-control.db')
-    os.chown(sandbox / 'legacy-control.db', int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
-    os.chmod(sandbox / 'legacy-control.db', 0o600)
+def compare_with_legacy(binary, sandbox):
+    # Rust and TypeScript serve the same copied databases; responses must match.
     guard = release / 'no-network.mjs'
     guard.write_text('globalThis.fetch = async () => { throw new Error("Network disabled during copied-database validation"); };\n')
     guard.chmod(0o644)
@@ -325,9 +350,79 @@ def validate():
                 child.wait()
         for log in logs:
             log.close()
+    return compared
+
+
+def check_release_api(binary, sandbox):
+    # Copied databases, no --live-device: the API serves stored data without network access.
+    port_available(43873)
+    args = ['runuser', '-u', 'solar', '--', str(binary), '--env-file', str(ROOT / '.env'),
+            '--telemetry-db', str(sandbox / 'telemetry.db'), '--control-db', str(sandbox / 'control.db'),
+            'api', '--port', '43873']
+    checked = []
+    with (release / 'rust-validation.log').open('x') as log:
+        os.chmod(log.name, 0o600)
+        child = subprocess.Popen(args, cwd=ROOT / 'app', stdout=log, stderr=log, start_new_session=True)
+        try:
+            for attempt in range(30):
+                require(child.poll() is None, 'Validation API exited; inspect private log')
+                try:
+                    require(get_json(43873, '/api/config')[0] == 200, 'Validation config failed')
+                    break
+                except (OSError, urllib.error.URLError):
+                    time.sleep(0.5)
+            else:
+                raise RuntimeError('Validation API did not start')
+            status, config = get_json(43873, '/api/config')
+            require(config.get('inverter', {}).get('id') == INVERTER, 'Release reports another inverter')
+            paths = ['/api/latest', '/api/history?hours=24', '/api/history?hours=168&max_points=200',
+                     '/api/snapshots?limit=5', '/api/voltage-history?hours=168', '/api/daily?days=7',
+                     '/api/summary', '/api/controls', '/api/control-log?limit=80', '/api/thresholds']
+            for path in paths:
+                status, payload = get_json(43873, path)
+                require(status == 200 and isinstance(payload, dict), f'Validation endpoint failed: {path}')
+                checked.append({'path': path, 'status': status})
+                print('Checked ' + path, flush=True)
+            if not config['inverter']['automation']:
+                require(get_json(43873, '/api/automation')[0] == 404, 'Automation route must not exist')
+                checked.append({'path': '/api/automation', 'status': 404})
+        finally:
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGTERM)
+            try:
+                child.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
+    return checked
+
+
+def validate():
+    preflight()
+    require(not (release / 'validation.json').exists(), 'Validation already exists; choose a new release for another attempt')
+    binary = release / 'bin/solar-backend'
+    require(binary.is_file() and not binary.is_symlink(), 'Build the Linux binary first')
+    require_env_keys(REQUIRED_ENV[INVERTER])
+    baseline = protected_state()
+    before = inspect()
+    saved, sources = backup(release / 'validation-backup', legacy=True)
+    sandbox = release / 'validation'
+    private_dir(sandbox)
+    for role in ['telemetry', 'control']:
+        shutil.copyfile(sources[role], sandbox / f'{role}.db')
+        os.chown(sandbox / f'{role}.db', int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
+        os.chmod(sandbox / f'{role}.db', 0o600)
+    shutil.copyfile(sandbox / 'control.db', sandbox / 'legacy-control.db')
+    os.chown(sandbox / 'legacy-control.db', int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
+    os.chmod(sandbox / 'legacy-control.db', 0o600)
+    if INVERTER == 'dess':
+        compared = compare_with_legacy(binary, sandbox)
+    else:
+        # The TypeScript backend only reads DESS, so other builds are checked on their own.
+        compared = check_release_api(binary, sandbox)
     live_poller = validate_live_poller(sources, sandbox)
     require(protected_state() == baseline, 'Protected state changed during validation')
-    report = {'release': release.name, 'binary_sha256': digest(binary), 'protected': baseline,
+    report = {'release': release.name, 'inverter': INVERTER, 'binary_sha256': digest(binary), 'protected': baseline,
               'production_before': before, 'backup': saved, 'api_comparisons': compared,
               'live_poller': live_poller, 'validated_at': time.time()}
     save(release / 'validation.json', report)
@@ -437,13 +532,14 @@ def smoke():
     for path in ['/api/config', '/api/latest', '/api/history?hours=24&max_points=200',
                  '/api/history?hours=168', '/api/voltage-history?hours=24',
                  '/api/daily?days=7', '/api/summary', '/api/controls',
-                 '/api/control-log?limit=10', '/api/automation', '/api/thresholds']:
+                 '/api/control-log?limit=10', '/api/thresholds',
+                 *(['/api/automation'] if INVERTER == 'dess' else [])]:
         start = time.perf_counter()
         status, payload = get_json(43871, path)
         require(status == 200 and isinstance(payload, dict), f'Live endpoint failed: {path}')
         results.append({'path': path, 'status': status, 'elapsed_ms': round((time.perf_counter() - start) * 1000, 2)})
     # These are inverter reads only; no write/automation-evaluate endpoint is called.
-    for field in ['bat_power_supply_value', 'bat_mains_power_supply_value']:
+    for field in SMOKE_READS[INVERTER]:
         status, payload = get_json(43871, '/api/controls/' + field + '/read', method='POST', body=b'{}')
         require(status == 200 and payload.get('control'), 'Live inverter read failed')
         results.append({'path': '/api/controls/' + field + '/read', 'status': status})
@@ -506,7 +602,8 @@ def cutover():
         if stopped:
             print('Cutover verification failed; restoring previous service commands', file=sys.stderr, flush=True)
             restore_commands()
-            wait_ready()
+            if not SWITCHING:
+                wait_ready()
             require(protected_state() == report['protected'], 'Protected state differs after rollback')
         raise
 
@@ -516,10 +613,14 @@ parser.add_argument('release')
 parser.add_argument('action', choices=['audit', 'validate', 'cutover', 'verify', 'smoke', 'rollback', 'db-state'])
 parser.add_argument('--telemetry', type=Path)
 parser.add_argument('--control', type=Path)
+parser.add_argument('--inverter-switch', action='store_true',
+                    help='Allow a release built for another inverter than the running one')
 args = parser.parse_args()
 require(re.fullmatch(r'rust-\d{8}T\d{6}Z', args.release), 'Invalid release name')
 release = ROOT / 'releases' / args.release
 require(release.resolve() == release and release.is_dir(), 'Invalid release directory')
+INVERTER = release_inverter(release)
+SWITCHING = args.inverter_switch
 if args.action == 'db-state':
     require(os.getuid() == int(command(['id', '-u', 'solar'])), 'Database inspection must run as solar')
     require(args.telemetry and args.control, 'Select explicit database paths')
@@ -531,15 +632,22 @@ else:
     if args.action == 'audit':
         preflight()
         print(json.dumps({'status': 'healthy', 'databases': inspect(), 'protected': protected_state()}))
-    elif args.action == 'validate':
-        validate()
-    elif args.action == 'cutover':
-        cutover()
+    elif args.action in ('validate', 'cutover'):
+        current = running_inverter()
+        require(INVERTER == current or SWITCHING,
+                f'Release builds {INVERTER} but production runs {current}; pass --inverter-switch')
+        require(INVERTER != current or not SWITCHING, '--inverter-switch needs a release for another inverter')
+        if args.action == 'validate':
+            validate()
+        else:
+            cutover()
     elif args.action == 'verify':
         verify()
     elif args.action == 'smoke':
         smoke()
     elif args.action == 'rollback':
         restore_commands()
-        wait_ready()
+        # After an inverter switch the restored backend's inverter may no longer report.
+        if not SWITCHING:
+            wait_ready()
         print('Previous service commands restored; current databases retained')
