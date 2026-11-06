@@ -41,6 +41,11 @@ export function DeviceCallout({
             : `${Math.round(soc)}%`
           : (connection?.value ?? "DC / AC")}
       </strong>
+      {connection?.strings?.map((s) => (
+        <span className="pv-string" key={s.name}>
+          {s.name} {s.value} · {s.voltage} · {s.current}
+        </span>
+      ))}
       {connection?.flowDetail && (
         <span className="battery-flow-detail">{connection.flowDetail}</span>
       )}

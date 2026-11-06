@@ -497,6 +497,12 @@ p {
   color: var(--flow-color);
   white-space: nowrap;
 }
+.installation-label > .pv-string {
+  font-size: 11px;
+  color: #bdbdbd;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .installation-label > small {
   font-size: 9px;
   color: var(--color-faint);
@@ -552,7 +558,7 @@ p {
   height: 100%;
 }
 .flat-label {
-  transform: translate(-50%, -50%);
+  transform: translate(calc(-50% + var(--fit-x, 0px)), -50%);
 }
 .flat-ground {
   fill: #1c1c1c;

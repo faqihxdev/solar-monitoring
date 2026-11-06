@@ -40,7 +40,12 @@ async fn store_history(db: &Db, sn: &str, rows: Vec<Value>) -> Result<usize> {
             let payload = payload(row);
             // A live poll stores a sample up to a poll interval after its sample time.
             let saved = if latest.is_some_and(|l| at <= l) {
-                s.insert_history(&sn, &payload, at, 60.0, 240.0)?
+                let inserted = s.insert_history(&sn, &payload, at, 60.0, 240.0)?;
+                // Snapshots stored before tracker readings existed gain them here.
+                if !inserted && payload["pv_strings"].is_array() {
+                    s.attach_strings(&sn, &payload["pv_strings"], at, 60.0, 240.0)?;
+                }
+                inserted
             } else {
                 s.save_snapshot(&sn, &payload, at)?
             };
@@ -58,7 +63,7 @@ async fn stored_on(db: &Db, sn: &str, date: chrono::NaiveDate) -> Result<i64> {
     let row = db
         .call(move |s| {
             s.one(
-                "SELECT COUNT(*) AS n FROM telemetry_snapshots WHERE device_sn=? AND polled_at>=? AND polled_at<?",
+                "SELECT COUNT(*) AS n FROM telemetry_snapshots WHERE device_sn=? AND polled_at>=? AND polled_at<? AND json_type(payload_json,'$.pv_strings') IS NOT NULL",
                 &[sql(sn), sql(start), sql(start + 86400.0)],
             )
         })
@@ -66,7 +71,7 @@ async fn stored_on(db: &Db, sn: &str, date: chrono::NaiveDate) -> Result<i64> {
     Ok(number(&row["n"]).unwrap_or(0.0) as i64)
 }
 /// Fills missing samples from the last `backfill_days` days. Past days that already hold
-/// [`COMPLETE_DAY`] snapshots are not requested again.
+/// [`COMPLETE_DAY`] snapshots with tracker readings are not requested again.
 pub async fn backfill(
     client: &Growatt,
     db: &Db,
