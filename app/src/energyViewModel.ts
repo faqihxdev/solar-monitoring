@@ -24,6 +24,8 @@ export interface EnergyConnection {
   unmetered: boolean;
   minimum?: boolean;
   color: string;
+  // Per-tracker readings shown under the solar total.
+  strings?: { name: string; value: string; voltage: string }[];
 }
 export function powerLabel(kw: number | null | undefined): string {
   if (kw != null && kw > 0 && kw < 0.001) return "<1 W";
@@ -88,6 +90,11 @@ export function energyConnections(reading: Reading | null): EnergyConnection[] {
       inferred: false,
       unmetered: false,
       color: C.solar,
+      strings: reading?.pv_strings?.map((s) => ({
+        name: s.name,
+        value: powerLabel(s.power == null ? null : s.power / 1000),
+        voltage: s.voltage == null ? "— V" : `${Math.round(s.voltage)} V`,
+      })),
     },
     {
       id: "grid",

@@ -4,6 +4,8 @@
 //! the same payload from either, so the snapshot hash skips duplicates: numbers are rounded
 //! to remove v1's float32 noise, and the state label comes from the status code because
 //! only v4 includes `spf5000StatusText`.
+//!
+//! The two MPPT inputs are reported separately and stored as `pv_strings`.
 use crate::{energy::infer, number, text};
 use serde_json::{Map, Value, json};
 
@@ -89,7 +91,14 @@ pub fn payload(row: &Value) -> Value {
             (key.to_owned(), json!(value))
         })
         .collect();
-    json!({"gts":row["time"],"readings":readings,"readings_raw":raw,"load_flows":infer(&readings)})
+    let mut payload = json!({"gts":row["time"],"readings":readings,"readings_raw":raw,"load_flows":infer(&readings)});
+    if pv.is_some() {
+        payload["pv_strings"] = json!([
+            {"name":"PV1","power":n("ppv"),"voltage":n("vpv")},
+            {"name":"PV2","power":n("ppv2"),"voltage":n("vpv2")},
+        ]);
+    }
+    payload
 }
 /// A voltage sample for `battery_voltage_readings`, when the row has a battery reading.
 pub fn voltage_sample(row: &Value) -> Option<Value> {

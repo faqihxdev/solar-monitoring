@@ -47,6 +47,13 @@ fn live_and_history_rows_for_one_sample_store_identically() {
     assert_eq!(r["battery_voltage"], 55.0);
     assert_eq!(r["battery_status"], 0, "16 W is standby draw");
     assert_eq!(r["working_state"], "PV Charging+Loads Supporting");
+    assert_eq!(
+        live["pv_strings"],
+        json!([
+            {"name":"PV1","power":331.0,"voltage":142.9},
+            {"name":"PV2","power":456.0,"voltage":188.1},
+        ])
+    );
 }
 #[test]
 fn rows_map_to_stored_conventions() {
@@ -230,6 +237,17 @@ async fn backfill_then_live_polls_store_each_sample_once() {
     assert_eq!(stored, json!({"n":3,"v":3}));
     let voltages = db.call(|s| s.voltage("sandbox", 1.0, now())).await.unwrap();
     assert_eq!(voltages.len(), 3);
+    let (latest, history) = db
+        .call(|s| {
+            Ok((
+                s.latest("sandbox")?,
+                s.history("sandbox", 1.0, now(), None)?,
+            ))
+        })
+        .await
+        .unwrap();
+    assert_eq!(latest["pv_strings"][1]["name"], "PV2");
+    assert!(history.iter().all(|p| p["pv_strings"].is_array()));
 
     // A gap before the newest snapshot is filled without moving the live poll state.
     let state_before = db
@@ -262,6 +280,64 @@ async fn backfill_then_live_polls_store_each_sample_once() {
     let error = poller::poll_once(client, &db, config).await.unwrap_err();
     assert!(error.to_string().contains("60 minutes old"), "{error}");
 
+    db.close().await.unwrap();
+    app.close().await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn backfill_adds_tracker_readings_to_snapshots_stored_without_them() {
+    let rows = recent_rows();
+    let (endpoint, state, server) = server(Mock {
+        today: rows.clone(),
+        last: rows[2].clone(),
+        ..Default::default()
+    })
+    .await;
+    let temp = tempfile::tempdir().unwrap();
+    let app = live_app(temp.path(), endpoint).await;
+    let path = temp.path().join("fresh.db");
+    Store::init(&path).unwrap();
+    let db = Db::open(path, true).await.unwrap();
+    // Snapshots from before tracker readings were stored.
+    let older = rows.clone();
+    db.call(move |s| {
+        for row in &older {
+            let mut payload = parse::payload(row);
+            payload.as_object_mut().unwrap().remove("pv_strings");
+            s.save_snapshot("sandbox", &payload, parse::sampled_at(row).unwrap())?;
+        }
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let missing = |db: Db| async move {
+        db.call(|s| {
+            s.one(
+                "SELECT COUNT(*) AS n FROM telemetry_snapshots WHERE json_type(payload_json,'$.pv_strings') IS NULL",
+                &[],
+            )
+        })
+        .await
+        .unwrap()["n"]
+            .clone()
+    };
+    assert_eq!(missing(db.clone()).await, 3);
+    let cancel = CancellationToken::new();
+    let client = &app.controls.device;
+    assert_eq!(
+        poller::backfill(client, &db, &app.config, &cancel)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(missing(db.clone()).await, 0);
+    let count = db
+        .call(|s| s.one("SELECT COUNT(*) AS n FROM telemetry_snapshots", &[]))
+        .await
+        .unwrap();
+    assert_eq!(count["n"], 3);
+    drop(state);
     db.close().await.unwrap();
     app.close().await.unwrap();
     server.abort();

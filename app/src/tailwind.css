@@ -497,6 +497,20 @@ p {
   color: var(--flow-color);
   white-space: nowrap;
 }
+.installation-label > .pv-string {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #bdbdbd;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.installation-label > .pv-string > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
 .installation-label > small {
   font-size: 9px;
   color: var(--color-faint);

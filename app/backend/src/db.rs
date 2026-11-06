@@ -212,10 +212,11 @@ impl Store {
             .execute(params_from_iter(args))?)
     }
     pub fn latest(&self, sn: &str) -> Result<Value> {
-        let mut row=self.one(&format!("SELECT {COLUMNS} FROM telemetry_snapshots WHERE device_sn=? ORDER BY polled_at DESC LIMIT 1"),&[sql(sn)])?;
+        let mut row=self.one(&format!("SELECT {COLUMNS},json_extract(payload_json,'$.pv_strings') AS pv_strings FROM telemetry_snapshots WHERE device_sn=? ORDER BY polled_at DESC LIMIT 1"),&[sql(sn)])?;
         if row.is_null() {
             return Ok(row);
         }
+        parse_strings(&mut row);
         energy::attach(&mut row);
         let v=self.one("SELECT sampled_at,sampled_at_raw,battery_voltage,mppt_battery_voltage FROM battery_voltage_readings WHERE device_sn=? ORDER BY sampled_at DESC LIMIT 1",&[sql(sn)])?;
         if !v.is_null() {
@@ -236,8 +237,9 @@ impl Store {
             .collect()
     }
     pub fn snapshots(&self, sn: &str, limit: usize) -> Result<Vec<Value>> {
-        let mut rows=self.all(&format!("SELECT id,{COLUMNS},payload_json FROM telemetry_snapshots WHERE device_sn=? ORDER BY polled_at DESC LIMIT ?"),&[sql(sn),sql(limit as i64)])?;
+        let mut rows=self.all(&format!("SELECT id,{COLUMNS},payload_json,json_extract(payload_json,'$.pv_strings') AS pv_strings FROM telemetry_snapshots WHERE device_sn=? ORDER BY polled_at DESC LIMIT ?"),&[sql(sn),sql(limit as i64)])?;
         for row in &mut rows {
+            parse_strings(row);
             let raw = raw_payload(&row["payload_json"]);
             row.as_object_mut().unwrap().remove("payload_json");
             if raw.as_object().is_some_and(|o| !o.is_empty()) {
@@ -395,6 +397,21 @@ impl Store {
         )?;
         Ok(())
     }
+    /// Adds per-tracker readings to stored snapshots that lack them, from `before` seconds
+    /// earlier to `after` seconds later. Leaves the hash and live poll state unchanged.
+    pub fn attach_strings(
+        &self,
+        sn: &str,
+        strings: &Value,
+        at: f64,
+        before: f64,
+        after: f64,
+    ) -> Result<usize> {
+        self.run(
+            "UPDATE telemetry_snapshots SET payload_json=json_set(payload_json,'$.pv_strings',json(?)) WHERE device_sn=? AND polled_at BETWEEN ? AND ? AND json_type(payload_json,'$.pv_strings') IS NULL",
+            &[sql(strings.to_string()), sql(sn), sql(at - before), sql(at + after)],
+        )
+    }
     /// Inserts an older sample from vendor history without touching the live poll state.
     /// Skips it when a snapshot already exists from `before` seconds earlier to `after` later.
     pub fn insert_history(
@@ -534,9 +551,10 @@ fn snapshot_row(sn: &str, payload: &Value, at: f64) -> SnapshotRow {
     let gts = text(&payload["gts"]);
     let hash = format!(
         "{:x}",
-        Sha256::digest(canonical(
-            &json!({"gts":gts,"readings":r,"readings_raw":payload["readings_raw"],"load_flows":f})
-        ))
+        Sha256::digest(canonical(&with_strings(
+            json!({"gts":gts,"readings":r,"readings_raw":payload["readings_raw"],"load_flows":f}),
+            payload
+        )))
     );
     let mut columns = vec![
         "device_sn",
@@ -549,10 +567,11 @@ fn snapshot_row(sn: &str, payload: &Value, at: f64) -> SnapshotRow {
         sql(sn),
         sql_value(&json!(gts)),
         sql(&hash),
-        sql(
-            json!({"readings_raw":payload.get("readings_raw").cloned().unwrap_or(json!({}))})
-                .to_string(),
-        ),
+        sql(with_strings(
+            json!({"readings_raw":payload.get("readings_raw").cloned().unwrap_or(json!({}))}),
+            payload,
+        )
+        .to_string()),
         sql(at),
     ];
     for key in energy::FLAT {
@@ -598,6 +617,27 @@ pub fn sql_value(v: &Value) -> SqlValue {
         }
         Value::String(s) => sql(s.clone()),
         _ => sql(v.to_string()),
+    }
+}
+/// Adds per-tracker PV readings when the inverter reports them. Payloads without them,
+/// including every DESS payload, keep their earlier content and hash.
+fn with_strings(mut value: Value, payload: &Value) -> Value {
+    if let Some(strings) = payload.get("pv_strings").filter(|s| s.is_array()) {
+        value["pv_strings"] = strings.clone();
+    }
+    value
+}
+/// Replaces the JSON text from `json_extract(payload_json,'$.pv_strings')` with its value,
+/// or drops the key when the snapshot has none.
+fn parse_strings(row: &mut Value) {
+    match row["pv_strings"]
+        .as_str()
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+    {
+        Some(strings) => row["pv_strings"] = strings,
+        None => {
+            row.as_object_mut().map(|o| o.remove("pv_strings"));
+        }
     }
 }
 fn raw_payload(v: &Value) -> Value {

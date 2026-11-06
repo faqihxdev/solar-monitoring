@@ -168,7 +168,9 @@ export default function EnergyFlow({
       value: powerLabel(
         latest?.pv_power == null ? null : latest.pv_power / 1000,
       ),
-      caption: "",
+      caption: (latest?.pv_strings ?? [])
+        .map((s) => `${s.name} ${powerLabel(s.power == null ? null : s.power / 1000)}`)
+        .join(" · "),
       icon: Sun,
       color: C.solar,
       values: recent.map((r) => r.pv_power),
