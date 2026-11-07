@@ -498,8 +498,8 @@ p {
   white-space: nowrap;
 }
 .installation-label > .pv-string {
-  font-size: 11px;
-  color: #bdbdbd;
+  font-size: 9px;
+  color: var(--color-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
