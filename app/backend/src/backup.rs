@@ -127,11 +127,6 @@ fn validate_destination(destination: &Path, telemetry: &Path, control: &Path) ->
         target.parent().is_some(),
         "Backup destination cannot be a filesystem root"
     );
-    let normalized = target.to_string_lossy().replace('\\', "/").to_lowercase();
-    ensure!(
-        !normalized.contains("/opt/kebun") && !normalized.contains("/var/lib/kebun"),
-        "Refusing protected shared-service path"
-    );
     for source in [telemetry, control] {
         ensure!(
             target != resolved(source.parent().context("Invalid source")?)?,

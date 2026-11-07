@@ -139,7 +139,6 @@ Asia/Jakarta rather than the host timezone.
 
 - The repository `data/` directory and `/opt/solar-system/data/` require explicit
   `--allow-production-data`. Resolved ancestors detect symlinks and junctions.
-  Data paths of another app on the same host are always refused.
 - `init` refuses existing files and the production override. Existing databases
   are checked for the required schema; startup never runs migrations,
   compaction, a vacuum, or a telemetry rewrite.
