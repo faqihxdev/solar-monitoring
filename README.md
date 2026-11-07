@@ -4,7 +4,7 @@ Self-hosted monitoring for a home solar, battery and grid system. One dashboard 
 
 [Rust backend checks](https://github.com/faqihxdev/solar-monitoring/actions/workflows/rust-backend.yml) · [Backend](app/backend/README.md)
 
-![Solar dashboard: live power cards above a 3D house with panels, battery, inverter and PLN grid, connected by colored cables, beside the battery details.](docs/images/dashboard.png)
+![Solar dashboard with sample data: live power cards above a 3D house with panels, battery, inverter and PLN grid. Current flows along the colored cables as the readings refresh, beside the battery details.](docs/images/dashboard.gif)
 
 The screenshot uses synthetic telemetry. The deployed instance is private.
 
