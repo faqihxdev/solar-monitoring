@@ -1,4 +1,0 @@
-# These run or install on the Linux server, so every checkout keeps LF.
-*.sh text eol=lf
-*.py text eol=lf
-ops/** text eol=lf
