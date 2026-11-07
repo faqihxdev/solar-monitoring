@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Run on utf-sh after syncing only app/backend into a new release's source/.
+# Run on utf-sh after scripts/stage-rust-release.sh has staged the release.
 # The pinned Rust toolchain is private to Solar; this does not install packages.
-# INVERTER selects the Cargo feature: dess (default) or growatt.
-release="${1:?Usage: build-rust-vps.sh rust-YYYYMMDDTHHMMSSZ [dess|growatt]}"
-inverter="${2:-dess}"
+# The inverter selects the Cargo feature: dess or growatt.
+usage="Usage: build-rust-vps.sh rust-YYYYMMDDTHHMMSSZ dess|growatt"
+release="${1:?$usage}"
+inverter="${2:?$usage}"
 [[ "$release" =~ ^rust-[0-9]{8}T[0-9]{6}Z$ ]] || exit 1
 [[ "$inverter" =~ ^(dess|growatt)$ ]] || exit 1
 features=(--no-default-features --features "$inverter")

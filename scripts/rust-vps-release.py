@@ -12,7 +12,6 @@ on validate, cutover and rollback; the previous inverter may no longer report.
 import argparse
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -69,11 +68,24 @@ def save(path, value):
         os.fsync(stream.fileno())
 
 
+def own_private(path):
+    os.chown(path, int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
+    os.chmod(path, 0o700 if path.is_dir() else 0o600)
+
+
 def private_dir(path):
     path.mkdir(mode=0o700)
-    uid = int(command(['id', '-u', 'solar']))
-    gid = int(command(['id', '-g', 'solar']))
-    os.chown(path, uid, gid)
+    own_private(path)
+
+
+def write_atomic(path, content, suffix):
+    pending = path.with_name(path.name + '.' + release.name + suffix)
+    with pending.open('x') as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+    pending.chmod(0o644)
+    os.replace(pending, path)
 
 
 def show(unit, prop):
@@ -189,15 +201,11 @@ def inspect(telemetry=DATA / 'solar.db', control=DATA / 'solar-control.db'):
                              '--telemetry', telemetry, '--control', control]))
 
 
-def backup(destination, legacy=False):
+def backup(destination):
     private_dir(destination)
-    if legacy:
-        output = solar(['/usr/bin/node', '--import', 'tsx', ROOT / 'app/server/backup.ts',
-                        '--destination', destination, '--keep', '14'], cwd=ROOT / 'app')
-    else:
-        output = solar([release / 'bin/solar-backend', '--allow-production-data',
-                        '--telemetry-db', DATA / 'solar.db', '--control-db', DATA / 'solar-control.db',
-                        'backup', '--destination', destination, '--keep', '14'])
+    solar([release / 'bin/solar-backend', '--allow-production-data',
+           '--telemetry-db', DATA / 'solar.db', '--control-db', DATA / 'solar-control.db',
+           'backup', '--destination', destination, '--keep', '14'])
     manifests = list(destination.glob('manifest-*.json'))
     require(len(manifests) == 1, 'Expected one complete private backup set')
     manifest = json.loads(manifests[0].read_text())
@@ -212,41 +220,6 @@ def backup(destination, legacy=False):
     require(set(sources) == {'telemetry', 'control'}, 'Incomplete paired backup')
     checked = inspect(sources['telemetry'], sources['control'])
     return {'manifest': str(manifests[0]), 'databases': checked}, sources
-
-
-def normalized(value):
-    # 'inverter' is the Rust build profile in /api/config; the TypeScript backend has none.
-    if isinstance(value, dict):
-        return {key: normalized(item) for key, item in value.items() if key not in {
-            'server_now', 'age_seconds', 'desired_practical_soc_now', 'target_voltage',
-            'target_a6', 'target_a7', 'target_band_capped', 'inverter'}}
-    if isinstance(value, list):
-        return [normalized(item) for item in value]
-    return value
-
-
-def difference(a, b, path='$'):
-    if isinstance(a, (float, int)) and isinstance(b, (float, int)):
-        return None if math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-8) else path
-    if type(a) is not type(b):
-        return path
-    if isinstance(a, dict):
-        if set(a) != set(b):
-            return path + '.keys'
-        for key in a:
-            found = difference(a[key], b[key], path + '.' + key)
-            if found:
-                return found
-    elif isinstance(a, list):
-        if len(a) != len(b):
-            return path + '.length'
-        for i, pair in enumerate(zip(a, b)):
-            found = difference(*pair, path + f'[{i}]')
-            if found:
-                return found
-    elif a != b:
-        return path
-    return None
 
 
 def free_ports(count):
@@ -265,8 +238,7 @@ def validate_live_poller(sources, sandbox):
     # Only telemetry reads are enabled. Inverter write permission is absent.
     telemetry = sandbox / 'live-telemetry.db'
     shutil.copyfile(sources['telemetry'], telemetry)
-    os.chown(telemetry, int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
-    os.chmod(telemetry, 0o600)
+    own_private(telemetry)
     before = inspect(telemetry, sandbox / 'control.db')
     # GROWATT_BACKFILL_DAYS keeps the history backfill to one request per validation.
     args = ['runuser', '-u', 'solar', '--', 'env', 'POLL_INTERVAL_SECONDS=60',
@@ -292,71 +264,6 @@ def validate_live_poller(sources, sandbox):
             if child.poll() is None:
                 os.killpg(child.pid, signal.SIGTERM)
                 child.wait(timeout=180)
-
-
-def compare_with_legacy(binary, sandbox):
-    # Rust and TypeScript serve the same copied databases; responses must match.
-    guard = release / 'no-network.mjs'
-    guard.write_text('globalThis.fetch = async () => { throw new Error("Network disabled during copied-database validation"); };\n')
-    guard.chmod(0o644)
-    rust_port, legacy_port = free_ports(2)
-    rust_args = ['runuser', '-u', 'solar', '--', str(binary), '--env-file', str(ROOT / '.env'),
-                 '--telemetry-db', str(sandbox / 'telemetry.db'), '--control-db', str(sandbox / 'control.db'),
-                 'api', '--port', str(rust_port)]
-    legacy_args = ['runuser', '-u', 'solar', '--', 'env',
-                   'DESS_DB_PATH=' + str(sandbox / 'telemetry.db'),
-                   'DESS_CONTROL_DB_PATH=' + str(sandbox / 'legacy-control.db'),
-                   f'DESS_DASHBOARD_PORT={legacy_port}', 'AUTOMATION_CHECK_INTERVAL_SECONDS=86400',
-                   '/usr/bin/node', '--import', 'tsx', '--import', str(guard), str(ROOT / 'app/server/index.ts')]
-    children = []
-    logs = []
-    compared = []
-    try:
-        for name, args in [('rust', rust_args), ('legacy', legacy_args)]:
-            log = (release / f'{name}-validation.log').open('x')
-            os.chmod(log.name, 0o600)
-            logs.append(log)
-            children.append(subprocess.Popen(args, cwd=ROOT / 'app', stdout=log, stderr=log, start_new_session=True))
-        for port in [rust_port, legacy_port]:
-            for attempt in range(30):
-                require(all(child.poll() is None for child in children), 'Validation API exited; inspect private logs')
-                try:
-                    require(get_json(port, '/api/config')[0] == 200, 'Validation config failed')
-                    break
-                except (OSError, urllib.error.URLError):
-                    time.sleep(0.5)
-            else:
-                raise RuntimeError('Validation API did not start')
-        paths = ['/api/config', '/api/latest', '/api/history?hours=1',
-                 '/api/history?hours=24', '/api/history?hours=168&max_points=200',
-                 '/api/history?hours=168', '/api/snapshots?limit=5',
-                 '/api/voltage-history?hours=168', '/api/daily?days=7',
-                 '/api/daily?days=30&date=2026-09-29', '/api/summary',
-                 '/api/controls', '/api/control-log?limit=80', '/api/automation', '/api/ready']
-        for path in paths:
-            rs, rv = get_json(rust_port, path)
-            ts, tv = get_json(legacy_port, path)
-            # Control copies are separate; the exposed config must retain its path keys.
-            if path == '/api/config':
-                rv['control_db_path'] = tv['control_db_path']
-            require(rs == ts, f'Status mismatch on {path}')
-            found = difference(normalized(rv), normalized(tv))
-            require(found is None, f'API mismatch on {path} at {found}')
-            compared.append({'path': path, 'status': rs})
-            print('Compared ' + path, flush=True)
-    finally:
-        for child in children:
-            if child.poll() is None:
-                os.killpg(child.pid, signal.SIGTERM)
-        for child in children:
-            try:
-                child.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.wait()
-        for log in logs:
-            log.close()
-    return compared
 
 
 def check_release_api(binary, sandbox):
@@ -389,9 +296,10 @@ def check_release_api(binary, sandbox):
                 require(status == 200 and isinstance(payload, dict), f'Validation endpoint failed: {path}')
                 checked.append({'path': path, 'status': status})
                 print('Checked ' + path, flush=True)
-            if not config['inverter']['automation']:
-                require(get_json(port, '/api/automation')[0] == 404, 'Automation route must not exist')
-                checked.append({'path': '/api/automation', 'status': 404})
+            # Only builds with automation (DESS) serve this route.
+            expected = 200 if config['inverter']['automation'] else 404
+            require(get_json(port, '/api/automation')[0] == expected, f'/api/automation must return {expected}')
+            checked.append({'path': '/api/automation', 'status': expected})
         finally:
             if child.poll() is None:
                 os.killpg(child.pid, signal.SIGTERM)
@@ -411,21 +319,13 @@ def validate():
     require_env_keys(REQUIRED_ENV[INVERTER])
     baseline = protected_state()
     before = inspect()
-    saved, sources = backup(release / 'validation-backup', legacy=True)
+    saved, sources = backup(release / 'validation-backup')
     sandbox = release / 'validation'
     private_dir(sandbox)
     for role in ['telemetry', 'control']:
         shutil.copyfile(sources[role], sandbox / f'{role}.db')
-        os.chown(sandbox / f'{role}.db', int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
-        os.chmod(sandbox / f'{role}.db', 0o600)
-    shutil.copyfile(sandbox / 'control.db', sandbox / 'legacy-control.db')
-    os.chown(sandbox / 'legacy-control.db', int(command(['id', '-u', 'solar'])), int(command(['id', '-g', 'solar'])))
-    os.chmod(sandbox / 'legacy-control.db', 0o600)
-    if INVERTER == 'dess':
-        compared = compare_with_legacy(binary, sandbox)
-    else:
-        # The TypeScript backend only reads DESS, so other builds are checked on their own.
-        compared = check_release_api(binary, sandbox)
+        own_private(sandbox / f'{role}.db')
+    compared = check_release_api(binary, sandbox)
     live_poller = validate_live_poller(sources, sandbox)
     require(protected_state() == baseline, 'Protected state changed during validation')
     report = {'release': release.name, 'inverter': INVERTER, 'binary_sha256': digest(binary), 'protected': baseline,
@@ -448,13 +348,7 @@ def install_overrides():
     for path, content in zip(dropin_paths(), contents):
         path.parent.mkdir(mode=0o755, exist_ok=True)
         require(path.parent.resolve() == path.parent, 'Redirected systemd directory')
-        pending = path.with_name(DROPIN + '.' + release.name + '.pending')
-        with pending.open('x') as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        pending.chmod(0o644)
-        os.replace(pending, path)
+        write_atomic(path, content, '.pending')
     command(['systemctl', 'daemon-reload'])
     command(['systemd-analyze', 'verify', *UNITS])
     for unit in UNITS:
@@ -475,13 +369,7 @@ def restore_commands():
             if path.exists():
                 path.unlink()
         elif not path.exists() or path.read_text() != previous[unit]:
-            pending = path.with_name(DROPIN + '.' + release.name + '.rollback')
-            with pending.open('x') as stream:
-                stream.write(previous[unit])
-                stream.flush()
-                os.fsync(stream.fileno())
-            pending.chmod(0o644)
-            os.replace(pending, path)
+            write_atomic(path, previous[unit], '.rollback')
     command(['systemctl', 'daemon-reload'])
     command(['systemctl', 'start', 'solar-poller.service', 'solar-api.service'])
 
