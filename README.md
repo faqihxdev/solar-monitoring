@@ -2,7 +2,7 @@
 
 Self-hosted monitoring for a home solar, battery and grid system. One dashboard shows live energy flow, history, daily totals and inverter settings.
 
-[Rust backend checks](https://github.com/faqihxdev/solar-monitoring/actions/workflows/rust-backend.yml) · [Backend](app/backend/README.md) · [Production safety](docs/production-safety.md)
+[Rust backend checks](https://github.com/faqihxdev/solar-monitoring/actions/workflows/rust-backend.yml) · [Backend](app/backend/README.md)
 
 ![Solar dashboard: live power cards above a 3D house with panels, battery, inverter and PLN grid, connected by colored cables, beside the battery details.](docs/images/dashboard.png)
 
@@ -60,16 +60,14 @@ Browser tests use a local fixture API with synthetic telemetry, and control writ
 
 ## Deployment
 
-`scripts/deploy-vps.sh` ships the committed frontend, and backend changes ship as versioned Rust releases. Both target this project's shared VPS, so review their host checks before adapting them. See [production safety](docs/production-safety.md).
+In production, Nginx serves `app/dist` and proxies `/api` to the API on a loopback port. The API and poller run as systemd services from a versioned release binary. Deployment scripts for the author's server are not part of this repository.
 
-Keep the API on localhost behind an authenticated proxy such as Cloudflare Access, and keep `.env`, databases and local deployment notes out of Git.
+Keep the API on localhost behind an authenticated proxy such as Cloudflare Access, and keep `.env` and the databases out of Git.
 
 ## Repository layout
 
 - `app/`: frontend, Rust and TypeScript backends, and shared logic
-- `docs/`: design, operations and reference docs ([index](docs/README.md))
-- `scripts/`: deployment and release scripts
-- `ops/`: Solar service overrides and database backup units
+- `docs/`: design and reference docs ([index](docs/README.md))
 
 ## License
 

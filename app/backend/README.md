@@ -137,12 +137,9 @@ Asia/Jakarta rather than the host timezone.
 
 ## Database safeguards
 
-Read [the production safety notes](../../docs/production-safety.md),
-`DEPLOYMENT_NOTES.local.md`, and its shared-VPS reference before a cutover.
-
 - The repository `data/` directory and `/opt/solar-system/data/` require explicit
   `--allow-production-data`. Resolved ancestors detect symlinks and junctions.
-  Data paths of other apps are always refused.
+  Data paths of another app on the same host are always refused.
 - `init` refuses existing files and the production override. Existing databases
   are checked for the required schema; startup never runs migrations,
   compaction, a vacuum, or a telemetry rewrite.
@@ -203,71 +200,8 @@ Regenerate the legacy fixtures deliberately after changing shared behavior:
 pnpm exec tsx backend/scripts/generate-fixtures.ts
 ```
 
-## Production releases and rollback
+## Production releases
 
-The systemd overrides `30-rust-backend.conf` for `solar-api.service`,
-`solar-poller.service` and `solar-db-backup.service` select the binary of one
-release under `/opt/solar-system/releases`. Services still run as
-`solar:solar` with the same environment file, data paths and Nginx proxy. The
-frontend deploy never touches them.
+Production runs a versioned release binary through systemd overrides for the API, poller and backup services. Each release is built and tested on the server for one inverter, validated against copies of the live databases, then cut over with automatic rollback on failure. The release scripts are specific to the author's server and are not part of this repository.
 
-Stage committed code from WSL, then run the printed commands on your-vps-host as root:
-
-```text
-scripts/stage-rust-release.sh growatt
-bash /opt/solar-system/releases/RELEASE/build-rust-vps.sh RELEASE growatt
-python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE audit
-python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE validate
-python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE cutover
-python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE smoke
-```
-
-- **Stage** copies `app/backend` and the two release scripts from `git archive`,
-  so a release never contains uncommitted files or CRLF endings.
-- **Build** runs `cargo fmt --check`, Clippy, the tests and a locked release
-  build as `solar` with the private Rust 1.91.1 toolchain, two jobs and low
-  CPU and I/O priority. It records the inverter in the release's `inverter`
-  file.
-- **Validate** takes a checked backup, serves copies of both databases from
-  the new API and checks 12 endpoints and the reported profile, then runs one
-  live poll into a copied database with device writes disabled.
-- **Cutover** must follow validation within an hour. It checks the binary hash
-  and that other services, Nginx, the frontend and `.env` are unchanged, takes a backup,
-  stops only the Solar API and poller, takes another backup, and switches the
-  overrides. It then requires fresh telemetry, unchanged database files and
-  schema, and the public 302, and runs the backup service. Any failure
-  restores the previous overrides.
-- **Smoke** checks the live endpoints, two setting reads and the 14 retained
-  backup sets.
-
-Roll back from the live release's own directory:
-
-```text
-python3 /opt/solar-system/releases/LIVE/rust-vps-release.py LIVE rollback
-```
-
-It restores the overrides that release replaced and keeps the current
-databases. It refuses to run from any release but the live one, so going back
-two releases takes two rollbacks, newest first. Restore database contents only
-for a separately diagnosed data incident.
-
-### Switching inverters
-
-When a release's inverter differs from the running one, `validate`, `cutover`
-and `rollback` require `--inverter-switch`. The flag also stops them requiring
-readiness from the outgoing backend, whose inverter may no longer report.
-
-1. Deploy the frontend first. It reads the profile from `/api/config` and works
-   with either backend.
-2. Add the new inverter's keys to `/opt/solar-system/.env` before validation;
-   cutover refuses a changed file.
-3. Stage and build for the new inverter, then run `audit`,
-   `validate --inverter-switch`, `cutover --inverter-switch` and `smoke`.
-
-Both builds use `solar.db` and `solar-control.db`. Every table is keyed by
-device serial, so each build reads only its own inverter's rows, and a
-rollback shows the old history again. After a Growatt cutover, the poller
-backfills up to 89 days of history in the background.
-
-To return to DESS, roll back each Growatt release newest first, the last one
-with `rollback --inverter-switch`.
+Both builds use the same database files. Every table is keyed by device serial, so each build reads only its own inverter's rows, and switching back shows the old history again. After a Growatt cutover, the poller backfills up to 89 days of history in the background.

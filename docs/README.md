@@ -1,7 +1,6 @@
 # Documentation index
 
 - `interface-design.md`: Dashboard layout, colors, power inference, motion and accessibility.
-- `production-safety.md`: Shared-VPS boundary, frontend deploys, backups and recovery guardrails.
 - `powmr-battery-link.md`: Product listing for the PowMr 12.8 V 100 Ah LiFePO4 battery.
 - Vendor PDF manuals and listings stay out of Git.
 
