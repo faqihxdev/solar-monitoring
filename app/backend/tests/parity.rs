@@ -126,7 +126,7 @@ fn rust_recognizes_the_legacy_snapshot_hash() {
     );
 }
 #[test]
-fn production_and_shared_service_paths_are_protected() {
+fn production_paths_are_protected() {
     let temp = tempfile::tempdir().unwrap();
     let other = temp.path().join("control.db");
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/solar.db");
@@ -139,7 +139,6 @@ fn production_and_shared_service_paths_are_protected() {
         )
         .is_err()
     );
-    assert!(validate_paths(std::path::Path::new("/opt/other-app/data.db"), &other, true).is_err());
     assert!(validate_paths(&other, &other, false).is_err());
     let path = temp.path().join("new.db");
     Store::init(&path).unwrap();

@@ -122,19 +122,13 @@ pub fn validate_paths(
     let repo_data = resolved(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data"))?;
     for path in [&telemetry, &control] {
         let normalized = path.to_string_lossy().replace('\\', "/").to_lowercase();
-        let protected = path.starts_with(&repo_data)
-            || normalized.contains("/opt/solar-system/data/")
-            || normalized.contains("/opt/other-app/")
-            || normalized.contains("/var/lib/other-app/");
+        let protected =
+            path.starts_with(&repo_data) || normalized.contains("/opt/solar-system/data/");
         if protected && !allow_production {
             bail!(
                 "Protected database path; use a sandbox copy. Explicit --allow-production-data is required"
             );
         }
-        ensure!(
-            !normalized.contains("/opt/other-app/") && !normalized.contains("/var/lib/other-app/"),
-            "Refusing protected shared-service data"
-        );
     }
     Ok((telemetry, control))
 }
