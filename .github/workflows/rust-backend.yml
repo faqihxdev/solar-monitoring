@@ -10,10 +10,6 @@ jobs:
     defaults:
       run:
         working-directory: app/backend
-    env:
-      # Empty on Dependabot and fork runs, which get no repository secrets.
-      NOTIFY_KEY: ${{ secrets.NOTIFY_KEY }}
-      NOTIFY_URL: ${{ secrets.NOTIFY_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -26,10 +22,3 @@ jobs:
       - run: cargo clippy --locked --all-targets --no-default-features --features growatt -- -D warnings
       - run: cargo test --locked --no-default-features --features growatt
       - run: cargo build --release --locked --no-default-features --features growatt
-      - name: Report failure
-        if: failure() && env.NOTIFY_KEY != '' && env.NOTIFY_URL != ''
-        run: |
-          jq -n --arg title "CI failed: $GITHUB_WORKFLOW" --arg message "$GITHUB_REF_NAME at ${GITHUB_SHA::7}" \
-            --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            '{project: "solar", title: $title, message: $message, level: "error", url: $url}' |
-            curl -fsS "$NOTIFY_URL" -H "authorization: Bearer $NOTIFY_KEY" -H 'content-type: application/json' --data-binary @-
