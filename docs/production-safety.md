@@ -1,7 +1,7 @@
 # Solar System production safety
 
-The Hetzner VPS is a shared host. Every Solar operation must stay inside the
-following boundary:
+The Hetzner VPS is a shared host. Every Solar operation must stay inside this
+boundary:
 
 | Resource | Solar System | Protected shared service |
 | --- | --- | --- |
@@ -12,110 +12,62 @@ following boundary:
 | Nginx site | `/etc/nginx/sites-enabled/solar-utf-sh` | every other entry in `sites-enabled` |
 | hostname | `solar.utf.sh` | `kebun.utf.sh` and the apex site |
 
-Never use a broad restart, recursive ownership change outside the verified
-Solar root, package cleanup, server reboot, or Nginx reload as part of a normal
-Solar deployment.
+A normal Solar deployment never uses a broad restart, a recursive ownership
+change outside the Solar root, package cleanup, a server reboot, or an Nginx
+reload.
 
-## Safe deployment
+## Frontend
 
-Production uses the Rust API, poller, and backup runtime as of September 30,
-2026. The service overrides select a versioned binary while preserving the
-existing service identities, configuration, databases, and Nginx proxy.
-Follow [the Rust release and rollback workflow](../app/backend/README.md#production-releases-and-rollback)
-for backend replacement. The standard script below builds only the frontend;
-it refuses changed Rust backend files when a service restart is requested.
-The TypeScript commands remain available for development and rollback.
+From WSL, run `scripts/deploy-vps.sh --dry-run`, then `scripts/deploy-vps.sh`.
+The script:
 
-`scripts/deploy-vps.sh` refuses any SSH alias, project path, public URL, Host
-header, or Nginx path outside the exact Solar production boundary. It also:
+- refuses uncommitted files under `app/` and builds the committed frontend
+  locally;
+- uploads only the build to `/opt/solar-system/app/dist.new`, owned by
+  `solar:solar`;
+- archives the served build to `/opt/solar-system/deploy-backups/` (keeping the
+  last 10), keeps it as `dist.prev`, and swaps the new build in;
+- checks that every file `index.html` references loads, `/api/ready` returns
+  200, and the public site still returns Cloudflare Access's 302;
+- requires Kebun, Nginx and every other enabled site to be unchanged afterwards.
 
-- verifies the live systemd users and working directories before syncing;
-- confirms Nginx configuration and the Kebun origin are healthy;
-- records Kebun/Nginx process state and hashes all non-Solar enabled Nginx
-  sites, then requires the same state after deployment;
-- applies `solar:solar` ownership and safe file modes only to incoming app
-  files, instead of recursively changing ownership on the server;
-- leaves Nginx untouched by default;
-- waits for the database-backed `/api/ready` endpoint rather than treating
-  static HTML as proof of application health.
+It never restarts services or touches Nginx. `scripts/deploy-vps.sh --rollback`
+swaps `dist.prev` back in.
 
-Run the dry run first and review every printed target:
+The source under `/opt/solar-system/app` is no longer updated. It holds the
+TypeScript backend that the base systemd units ran before the Rust overrides.
 
-```bash
-DESS_DEPLOY_SSH_HOST=utf-sh \
-DESS_DEPLOY_REMOTE_APP_DIR=/opt/solar-system/app \
-DESS_DEPLOY_PUBLIC_URL=https://solar.utf.sh \
-DESS_DEPLOY_ORIGIN_HOST_HEADER=solar.utf.sh \
-DESS_DEPLOY_NGINX_SITE_PATH=/etc/nginx/sites-enabled/solar-utf-sh \
-./scripts/deploy-vps.sh --dry-run
-```
+## Backend
 
-Do not pass `--update-nginx-timeouts` during an ordinary deployment. That flag
-is reserved for a separately reviewed Solar proxy change because even a safe
-reload is shared by every hosted site.
+The systemd overrides `30-rust-backend.conf` run a versioned Rust binary for
+the API, poller and backup. Follow
+[the release and rollback workflow](../app/backend/README.md#production-releases-and-rollback).
 
-## Solar-only operations safeguards
+## Operations safeguards
 
-The application must first provide the tested command below. It uses SQLite's
-online backup API, validates both completed databases, and only then performs
-strictly named retention pruning:
-
-```bash
-pnpm backup -- --destination /opt/solar-system/backups --keep 14
-```
-
-The installer refuses to write anything if that package script is not already
-deployed. Run its read-only checks, then its dry run:
-
-```bash
-./scripts/install-solar-ops.sh --preflight-only
-./scripts/install-solar-ops.sh --dry-run
-```
-
-Install the safeguards and explicitly exercise the first validated backup:
-
-```bash
-./scripts/install-solar-ops.sh --run-backup
-```
-
-The installer is idempotent and limited to exact Solar paths and units. It:
+`scripts/install-solar-ops.sh` was a one-time installer, already applied. Its
+`--preflight-only` and `--dry-run` modes stay safe to run. It:
 
 - makes the app non-writable by other local service users;
-- sets the data and backup directories to `0700`, and secrets/databases to
+- sets the data and backup directories to `0700`, and secrets and databases to
   `0600`;
-- installs `UMask=0077` and `TimeoutStopSec=5min` drop-ins for the two Solar
-  services; the longer stop window allows in-flight DESS work to drain;
+- installs `UMask=0077` and `TimeoutStopSec=5min` drop-ins for the API and
+  poller, so in-flight inverter requests can drain;
 - enables `solar-db-backup.timer` at 02:17 UTC daily, with up to 15 minutes of
-  jitter and a low-priority, sandboxed backup service;
-- never restarts Solar, Kebun, or Nginx. The service drop-ins take effect on
-  the next controlled Solar restart.
+  jitter and a low-priority, sandboxed backup service.
 
-The 14 on-host backup sets protect against application/database mistakes, but
-not loss of the VPS. Add an encrypted off-host copy and regularly restore a
-copy into a temporary location for an integrity drill.
+The backup keeps 14 validated sets on the host. They cover application and
+database mistakes, not loss of the VPS. An encrypted off-host copy and a
+regular restore drill would close that gap.
 
-## Security updates and full-server backups
+## Security updates and server backups
 
-Do not disable unattended security updates or globally change `needrestart`.
-With file-backed SQLite durability and graceful shutdown in place, an
-automatic Solar restart should no longer be able to truncate the database.
+Keep unattended security updates on and leave `needrestart` at its default.
+With WAL durability and graceful shutdown, an automatic Solar restart cannot
+truncate the databases.
 
-Hetzner Cloud Backups are a useful second layer: Hetzner documents automated
-daily copies with seven slots, billed at 20% of the server price. Enabling them
-changes billing and therefore requires action-time owner confirmation. They
-cover the shared server disk, so restoring one in place also affects Kebun;
-prefer creating a temporary server from a backup for inspection whenever
-possible.
-
-- [Hetzner backup and snapshot overview](https://docs.hetzner.com/cloud/servers/backups-snapshots/overview/)
-- [Hetzner backup billing FAQ](https://docs.hetzner.com/cloud/billing/faq/#how-do-you-bill-for-snapshots-and-backups)
-
-## Audit baseline (2026-09-03 UTC)
-
-The read-only audit found all four relevant services active and enabled,
-Nginx configuration valid, Kebun origin HTTP 200, no failed systemd units,
-30 GiB free on the root filesystem, and about 1.6 GiB available memory. No
-Solar database backup timer, `restic`, `borg`, `rclone`, or `sqlite3` CLI was
-present. Before the permission installer, the app tree contained
-group/world-writable files and both databases were mode `0755`; these are the
-specific permission defects the Solar-only installer corrects.
+Hetzner Cloud Backups would add daily whole-disk copies, at 20% of the server
+price. They change billing, so they need the owner's confirmation. They also
+cover Kebun, so restore one to a temporary server for inspection rather than in
+place. See
+[Hetzner backups and snapshots](https://docs.hetzner.com/cloud/servers/backups-snapshots/overview/).
