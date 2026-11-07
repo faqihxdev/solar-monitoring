@@ -1,12 +1,14 @@
-# Documentation Index
+# Documentation index
 
-- [interface-design.md](interface-design.md): Connected 3D installation, colors, power inference, motion, accessibility, and browser verification.
-- `dessmonitor-api-endpoints.md`: DESSMonitor endpoint map, auth/signing flow, and action catalog captured from portal/API behavior.
-- `battery-switching-tuning-plan.md`: Battery voltage tuning strategy to reduce mains/inverter chatter while preserving safe deep discharge.
-- `mini-pc-rs485-direct-monitoring-plan.md`: Future plan for hosting the dashboard on a used mini PC and adding direct Zamdon RS485/Modbus monitoring.
-- `powmr-battery-link.md`: External product reference link for the POWMR 12V 100Ah LiFePO4 battery.
-- `production-safety.md`: Shared-VPS deployment boundary, Solar-only hardening, validated backups, and recovery guardrails.
-- Vendor PDF manuals/listings are intentionally excluded from this public repository.
+- `interface-design.md`: Dashboard layout, colors, power inference, motion and accessibility.
+- `production-safety.md`: Shared-VPS boundary, frontend deploys, backups and recovery guardrails.
+- `powmr-battery-link.md`: Product listing for the PowMr 12.8 V 100 Ah LiFePO4 battery.
+- Vendor PDF manuals and listings stay out of Git.
 
-Repository layout note:
-- The dashboard application now lives in `app/` at the repository root.
+## Archive
+
+Notes from the PowMr inverter read through DESSMonitor, kept in case it returns:
+
+- `archive/dessmonitor-api-endpoints.md`: DESSMonitor endpoints, auth and signing, and action catalog.
+- `archive/battery-switching-tuning-plan.md`: A4 to A7 switching voltages for the old 24 V pack.
+- `archive/mini-pc-rs485-direct-monitoring-plan.md`: Mini PC hosting and direct RS485/Modbus monitoring of the PowMr inverter.

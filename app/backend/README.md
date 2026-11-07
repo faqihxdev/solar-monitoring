@@ -1,11 +1,10 @@
 # Rust backend
 
-This is the Rust backend for the Solar API, poller, inverter controls,
-automation, and SQLite backups. It preserves the frontend API and the current
-database schema. Production switched to Rust on September 30, 2026. The
-systemd services execute a versioned Linux binary directly. The existing
-`pnpm api`, `pnpm poller`, and `pnpm backup` commands still select TypeScript
-for local development, comparison, and rollback.
+This is the Rust backend for the Solar API, poller, inverter settings and
+SQLite backups, plus charge automation in the DESS build. It has run
+production since September 30, 2026, and the Growatt build since November 6.
+The systemd services execute a versioned Linux binary directly. `pnpm api`,
+`pnpm poller` and `pnpm backup` still run the DESS-only TypeScript backend.
 
 ## Runtime
 
@@ -186,15 +185,10 @@ automation status scenarios, guarded writes and band restoration, WAL recovery
 after a process exits inside a transaction, validated backups, request limits,
 readiness, and background-task draining.
 
-`pnpm bench:backend` generates a temporary database with 20,000 telemetry
-points and 5,000 voltage samples. It compares the legacy and release Rust read
-and JSON-encoding paths, capped history, seven-day totals, and 100 readiness
-queries. It checks the returned values before recording five-iteration median
-and p95 times in `benchmark-results.json`. These are local synthetic-workload
-measurements, not production HTTP latency or DESS network speed claims.
-
-The optimized Windows run produced the following medians. See the
-checked-in JSON report for fixture details and p95 values.
+`pnpm bench:backend` runs both backends' read paths against a temporary
+database with 20,000 telemetry points and 5,000 voltage samples, checks the
+results, and writes median and p95 times to `benchmark-results.json`. Medians
+from a local Windows run, not production latency:
 
 | Workload | TypeScript | Rust release | Speedup |
 | --- | ---: | ---: | ---: |
@@ -211,99 +205,69 @@ pnpm exec tsx backend/scripts/generate-fixtures.ts
 
 ## Production releases and rollback
 
-The current deployment script excludes Rust `target/` output so a regular
-frontend deployment cannot upload compiler caches or Windows binaries. It
-does not build or activate this backend. When Rust is active, it refuses an
-ordinary backend deployment with changed Rust files. `--ui-only` continues to
-deploy an explicitly frontend-only change. Rust updates use a new versioned
-release and the validation workflow below.
+The systemd overrides `30-rust-backend.conf` for `solar-api.service`,
+`solar-poller.service` and `solar-db-backup.service` select the binary of one
+release under `/opt/solar-system/releases`. Services still run as
+`solar:solar` with the same environment file, data paths and Nginx proxy. The
+frontend deploy never touches them.
 
-Production uses `/opt/solar-system/releases/rust-20260930T151000Z/bin/solar-backend`.
-Only `30-rust-backend.conf` overrides for `solar-api.service`,
-`solar-poller.service`, and `solar-db-backup.service` select it. The API still
-binds to localhost port 43871. User/group, environment file, data paths, UMask,
-shutdown timeout, backup sandbox, timer, and Nginx configuration are preserved.
-The binary is root-owned; services still run as `solar:solar`.
-
-For an authorized future update, create a new `rust-YYYYMMDDTHHMMSSZ` release
-under `/opt/solar-system/releases`, with a private `solar:solar` source directory.
-Sync only this backend directory into `source/`, excluding `target/` and all
-environment files. Copy the two repository scripts into that release. The
-private toolchain under `/opt/solar-system/build-tools` is pinned to Rust 1.91.1;
-no shared system package or shell profile was changed to install it.
-
-Run these commands on the verified server as root, replacing `RELEASE` with
-the new release name:
+Stage committed code from WSL, then run the printed commands on your-vps-host as root:
 
 ```text
-bash /opt/solar-system/releases/RELEASE/build-rust-vps.sh RELEASE
+scripts/stage-rust-release.sh growatt
+bash /opt/solar-system/releases/RELEASE/build-rust-vps.sh RELEASE growatt
 python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE audit
 python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE validate
 python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE cutover
 python3 /opt/solar-system/releases/RELEASE/rust-vps-release.py RELEASE smoke
 ```
 
-The build runs native Linux formatting, strict Clippy, all tests, and a locked
-release build as `solar`, with two jobs and low CPU/I/O priority. Validation
-takes a checked legacy backup, compares 15 API responses on copies, and checks
-a live DESS read into a copied telemetry database with inverter writes disabled.
-The copied TypeScript API blocks external fetches and automatic evaluation.
-Time-dependent status projections are excluded from the response comparison;
-their rules have separate parity tests.
+- **Stage** copies `app/backend` and the two release scripts from `git archive`,
+  so a release never contains uncommitted files or CRLF endings.
+- **Build** runs `cargo fmt --check`, Clippy, the tests and a locked release
+  build as `solar` with the private Rust 1.91.1 toolchain, two jobs and low
+  CPU and I/O priority. It records the inverter in the release's `inverter`
+  file.
+- **Validate** takes a checked backup, serves copies of both databases from
+  the new API and checks 12 endpoints and the reported profile, then runs one
+  live poll into a copied database with device writes disabled.
+- **Cutover** must follow validation within an hour. It checks the binary hash
+  and that other services, Nginx, the frontend and `.env` are unchanged, takes a backup,
+  stops only the Solar API and poller, takes another backup, and switches the
+  overrides. It then requires fresh telemetry, unchanged database files and
+  schema, and the public 302, and runs the backup service. Any failure
+  restores the previous overrides.
+- **Smoke** checks the live endpoints, two setting reads and the 14 retained
+  backup sets.
 
-Cutover verifies the binary hash and shared-service baseline, saves previous
-overrides, takes a live paired backup, then stops only the Solar API and poller.
-It takes another verified paired backup with both writers stopped, switches
-the overrides, and requires a newly committed Rust poll heartbeat. It verifies
-database identity, schema, history, automation settings, other services/Nginx continuity,
-and the public Cloudflare Access response, then exercises the Rust backup
-service. Failure restores the previous service commands automatically.
+Roll back from the live release's own directory:
+
+```text
+python3 /opt/solar-system/releases/LIVE/rust-vps-release.py LIVE rollback
+```
+
+It restores the overrides that release replaced and keeps the current
+databases. It refuses to run from any release but the live one, so going back
+two releases takes two rollbacks, newest first. Restore database contents only
+for a separately diagnosed data incident.
 
 ### Switching inverters
 
-`build-rust-vps.sh RELEASE growatt` builds and tests the Growatt variant and
-records `growatt` in the release's `inverter` file. Releases without that file
-are DESS builds. When a release's inverter differs from the running one,
-`validate`, `cutover` and `rollback` refuse to run without `--inverter-switch`.
-The flag also stops them requiring readiness from the outgoing backend, whose
-inverter may no longer report.
+When a release's inverter differs from the running one, `validate`, `cutover`
+and `rollback` require `--inverter-switch`. The flag also stops them requiring
+readiness from the outgoing backend, whose inverter may no longer report.
 
-1. Deploy the frontend first with `scripts/deploy-vps.sh --ui-only`. It reads
-   the inverter profile from `/api/config` and still works with the running
-   DESS backend.
-2. Add `GROWATT_TOKEN` and `GROWATT_SN` to `/opt/solar-system/.env` before
-   validation. Validation records the file's hash and cutover refuses a change.
-3. Build, then run `audit`, `validate --inverter-switch`,
-   `cutover --inverter-switch` and `smoke`.
+1. Deploy the frontend first. It reads the profile from `/api/config` and works
+   with either backend.
+2. Add the new inverter's keys to `/opt/solar-system/.env` before validation;
+   cutover refuses a changed file.
+3. Stage and build for the new inverter, then run `audit`,
+   `validate --inverter-switch`, `cutover --inverter-switch` and `smoke`.
 
-The Growatt build keeps using `solar.db` and `solar-control.db`. Every table is
-keyed by device serial, so it stores and reads only Growatt rows. The DESS
-history stays in the same files, and rolling back shows it again. Validation
-checks 10 Growatt API endpoints on copied data, confirms the API reports the
-`growatt` profile and has no automation route, and runs one live Growatt read
-into a copied database with a one-day backfill. Smoke reads the switch-to-grid
-and return-to-battery voltages instead of A6/A7. After cutover, the first poll
+Both builds use `solar.db` and `solar-control.db`. Every table is keyed by
+device serial, so each build reads only its own inverter's rows, and a
+rollback shows the old history again. After a Growatt cutover, the poller
 backfills up to 89 days of history in the background.
 
-Roll back an inverter switch with `rollback --inverter-switch` from the new
-release's directory. It restores the previous service commands without waiting
-for readiness.
-
-Rollback the current release with:
-
-```text
-python3 /opt/solar-system/releases/rust-20260930T151000Z/rust-vps-release.py rust-20260930T151000Z rollback
-```
-
-Rollback restores the previous commands and retains the current compatible
-database files. Restore database contents only for a separately diagnosed data
-incident. No schema migration was needed for the replacement.
-
-The September 30 cutover passed native Linux checks, all 15 copied-data
-comparisons, and 13 live endpoint checks, including A6/A7 reads. The Rust
-poller committed fresh telemetry and voltage samples. Both live databases
-passed `quick_check`; their file identities and schema hashes stayed unchanged.
-All 14 retained backup sets remained complete, and the new backup hashes were
-verified. Evidence and the pre-cutover/stopped backup sets are private to the
-release directory. The existing frontend, credentials, other services, and Nginx were
-unchanged.
+To return to DESS, roll back each Growatt release newest first, the last one
+with `rollback --inverter-switch`.
