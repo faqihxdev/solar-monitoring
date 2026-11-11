@@ -187,6 +187,11 @@
   "outputConfig": 0,
   "chargeConfig": 2,
   "batteryType": 2,
+  "acInModel": 0,
+  "powSavingEn": 0,
+  "buzzerEN": 1,
+  "bLightEn": 1,
+  "fwVersion": "100.08/101.07",
   "status": 12
  }
 }

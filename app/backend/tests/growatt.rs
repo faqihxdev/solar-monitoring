@@ -400,6 +400,17 @@ async fn the_api_is_read_only_and_reads_settings_in_one_request() {
     let value = |id: &str| controls.iter().find(|c| c["id"] == id).unwrap()["raw_value"].clone();
     assert_eq!(value("batLowToUtiVolt"), "51.2");
     assert_eq!(value("power_value"), "6000");
+    assert_eq!(value("outputConfig"), "0");
+    assert_eq!(value("buzzerEN"), "1");
+    assert_eq!(value("fwVersion"), "100.08/101.07");
+    let output = controls.iter().find(|c| c["id"] == "outputConfig").unwrap();
+    assert!(
+        output["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["value"] == "0" && o["label"].as_str().unwrap().starts_with("SBU"))
+    );
     assert_eq!(state.lock().unwrap().calls.len(), 1);
 
     let (_, thresholds) = request(&app, "GET", "/api/thresholds").await;
