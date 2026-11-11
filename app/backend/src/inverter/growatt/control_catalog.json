@@ -50,6 +50,90 @@
     "hint": "Float charge target"
   },
   {
+    "id": "chargeConfig",
+    "label": "Charger source priority",
+    "group": "battery",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "enum",
+    "hint": "Program 14: what may charge the battery while on grid",
+    "options": [
+      {
+        "value": "0",
+        "label": "Solar first - grid only without solar"
+      },
+      {
+        "value": "1",
+        "label": "Solar and utility"
+      },
+      {
+        "value": "2",
+        "label": "Only solar"
+      }
+    ]
+  },
+  {
+    "id": "batteryType",
+    "label": "Battery type",
+    "group": "battery",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "enum",
+    "hint": "Program 05: User-defined allows custom charge and cutoff voltages",
+    "options": [
+      {
+        "value": "0",
+        "label": "AGM"
+      },
+      {
+        "value": "1",
+        "label": "Flooded"
+      },
+      {
+        "value": "2",
+        "label": "User-defined"
+      },
+      {
+        "value": "3",
+        "label": "Lithium (BMS)"
+      },
+      {
+        "value": "4",
+        "label": "User-defined 2"
+      }
+    ]
+  },
+  {
+    "id": "outputConfig",
+    "label": "Output source priority",
+    "group": "other",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "enum",
+    "hint": "Program 01: which source powers the house first",
+    "options": [
+      {
+        "value": "0",
+        "label": "SBU - solar, battery, then grid"
+      },
+      {
+        "value": "1",
+        "label": "Solar first - grid when no solar"
+      },
+      {
+        "value": "2",
+        "label": "Utility first - grid, then solar and battery"
+      },
+      {
+        "value": "3",
+        "label": "SUB - solar, grid, then battery"
+      }
+    ]
+  },
+  {
     "id": "power_value",
     "field": "rateWatt",
     "label": "Rated output power",
@@ -61,33 +145,97 @@
     "hint": "Inverter rated output, used as the load gauge maximum"
   },
   {
-    "id": "outputConfig",
-    "label": "Output source priority (code)",
+    "id": "acInModel",
+    "label": "AC input range",
     "group": "other",
     "unit": "",
     "scale": 1,
     "writable": false,
-    "type": "text",
-    "hint": "Growatt setting code, shown as reported"
+    "type": "enum",
+    "hint": "Program 03: accepted grid voltage range",
+    "options": [
+      {
+        "value": "0",
+        "label": "Appliance - 90 to 280 V"
+      },
+      {
+        "value": "1",
+        "label": "UPS - 170 to 280 V"
+      },
+      {
+        "value": "2",
+        "label": "Generator"
+      }
+    ]
   },
   {
-    "id": "chargeConfig",
-    "label": "Charger source priority (code)",
+    "id": "powSavingEn",
+    "label": "Power saving mode",
     "group": "other",
     "unit": "",
     "scale": 1,
     "writable": false,
-    "type": "text",
-    "hint": "Growatt setting code, shown as reported"
+    "type": "enum",
+    "hint": "Program 04: turns the output off when no load is detected",
+    "options": [
+      {
+        "value": "0",
+        "label": "Off"
+      },
+      {
+        "value": "1",
+        "label": "On"
+      }
+    ]
   },
   {
-    "id": "batteryType",
-    "label": "Battery type (code)",
+    "id": "buzzerEN",
+    "label": "Alarm buzzer",
+    "group": "other",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "enum",
+    "hint": "Program 15",
+    "options": [
+      {
+        "value": "0",
+        "label": "Off"
+      },
+      {
+        "value": "1",
+        "label": "On"
+      }
+    ]
+  },
+  {
+    "id": "bLightEn",
+    "label": "LCD backlight",
+    "group": "other",
+    "unit": "",
+    "scale": 1,
+    "writable": false,
+    "type": "enum",
+    "hint": "Program 16",
+    "options": [
+      {
+        "value": "0",
+        "label": "Off"
+      },
+      {
+        "value": "1",
+        "label": "On"
+      }
+    ]
+  },
+  {
+    "id": "fwVersion",
+    "label": "Firmware version",
     "group": "other",
     "unit": "",
     "scale": 1,
     "writable": false,
     "type": "text",
-    "hint": "Growatt setting code, shown as reported"
+    "hint": "Main and slave firmware, as reported"
   }
 ]

@@ -989,7 +989,19 @@ function ControlGroup({
                 <div className="lg:col-span-3">
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      {control.type === "enum" && control.options?.length ? (
+                      {control.type === "enum" &&
+                      control.options?.length &&
+                      !control.writable ? (
+                        <div
+                          aria-label={`${control.label} value`}
+                          className="flex h-7 w-full items-center truncate rounded-card border border-line bg-panel px-2 text-xs text-text"
+                          title={value}
+                        >
+                          {control.options.find(
+                            (option) => option.value === value,
+                          )?.label ?? (value ? `${value} - unknown code` : "—")}
+                        </div>
+                      ) : control.type === "enum" && control.options?.length ? (
                         <select
                           className="h-7 w-full cursor-pointer appearance-none rounded-card border border-line bg-panel py-1 pl-2 pr-7 text-xs text-text outline-none focus:border-line-hi disabled:cursor-not-allowed disabled:opacity-50"
                           style={{
