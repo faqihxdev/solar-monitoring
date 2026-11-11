@@ -123,8 +123,14 @@ pub fn resolve(r: Power<'_>) -> (Option<f64>, bool, bool) {
     } else {
         None
     };
+    // Off-grid inverters cannot export, so a solar surplus in bypass is unused
+    // solar, not grid export. Only a measured negative reading means export.
     if let (Some(pv), Some(load), Some(signed)) = (pv, load, signed) {
-        return (Some(clean(load + signed - pv / 1000.0)), true, true);
+        return (
+            Some(clean((load + signed - pv / 1000.0).max(0.0))),
+            true,
+            true,
+        );
     }
     if status == Some(-1.0) && pv.is_some() {
         return (load, load.is_some(), pv.is_some_and(|n| n > 0.0));

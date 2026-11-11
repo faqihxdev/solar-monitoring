@@ -56,6 +56,21 @@ fn live_and_history_rows_for_one_sample_store_identically() {
     );
 }
 #[test]
+fn bypass_solar_surplus_is_not_grid_export() {
+    let reading = json!({
+        "working_state": "PV&Grid Charging+Grid Bypass",
+        "pv_power": 602.0,
+        "load_power": 0.513,
+        "grid_power": 0.0,
+        "battery_power": 0.0,
+        "battery_status": 0,
+    });
+    assert_eq!(energy::grid(&reading).0, Some(0.0));
+    let flows = energy::infer(&reading);
+    assert_eq!(flows["pv_to_grid_kw"], 0.0);
+    assert_eq!(flows["pv_to_load_kw"], 0.513);
+}
+#[test]
 fn rows_map_to_stored_conventions() {
     let bypass = parse::payload(&row("2026-11-05 00:01:11"));
     assert_eq!(bypass["readings"]["working_state"], "Grid Bypass");
