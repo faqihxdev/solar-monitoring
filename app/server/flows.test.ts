@@ -96,6 +96,21 @@ test("solar surplus alone does not invent a grid export", () => {
   assert.equal(inferEnergyFlows(reading).pv_to_grid_kw, 0);
 });
 
+test("bypass solar surplus with an idle battery does not invent a grid export", () => {
+  const reading = {
+    working_state: "PV&Grid Charging+Grid Bypass",
+    pv_power: 602,
+    load_power: 0.513,
+    grid_power: 0,
+    battery_power: 0,
+    battery_status: 0,
+  };
+  assert.equal(effectiveGridPower(reading).grid_power_kw, 0);
+  const flows = inferEnergyFlows(reading);
+  assert.equal(flows.pv_to_grid_kw, 0);
+  near(flows.pv_to_load_kw, 0.513);
+});
+
 test("off-grid mode is not classified as mains-connected", () => {
   const reading = {
     working_state: "Off-grid",

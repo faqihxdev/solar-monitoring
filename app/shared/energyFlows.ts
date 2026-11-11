@@ -63,9 +63,11 @@ export function resolveGridPower(reading: PowerReading): GridPower {
       : battery != null && battery !== 0 && (status === -1 || status === 1)
         ? Math.abs(battery) * (status === -1 ? 1 : -1)
         : null;
+  // Off-grid inverters cannot export, so a solar surplus in bypass is unused
+  // solar, not grid export. Only a measured negative reading means export.
   if (pvW != null && load != null && signedBattery != null) {
     return {
-      kw: clean(load + signedBattery - pvW / 1000),
+      kw: clean(Math.max(0, load + signedBattery - pvW / 1000)),
       inferred: true,
       complete: true,
     };
